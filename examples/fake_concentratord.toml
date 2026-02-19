@@ -1,0 +1,33 @@
+# Fake Concentratord configuration.
+
+# Gateway ID (16 hex chars).
+gateway_id = "0016c001f156d7e5"
+
+# Statistics interval (seconds).
+stats_interval = 30
+
+
+# ZMQ API configuration.
+[api]
+
+  # Event PUB socket bind.
+  event_bind = "ipc:///tmp/test_concentratord_event"
+
+  # Command REP socket bind.
+  command_bind = "ipc:///tmp/test_concentratord_command"
+
+
+# Test uplink configuration.
+[uplink]
+
+  # Frequency in Hz.
+  frequency = 868100000
+
+  # Spreading factor (7-12).
+  spreading_factor = 7
+
+  # Bandwidth in Hz.
+  bandwidth = 125000
+
+  # Interval between test uplinks (seconds).
+  interval = 10
