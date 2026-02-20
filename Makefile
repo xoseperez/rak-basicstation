@@ -98,6 +98,3 @@ test:
 	cargo clippy --no-deps
 	cargo test
 
-# Enter the devshell.
-devshell:
-	nix-shell
