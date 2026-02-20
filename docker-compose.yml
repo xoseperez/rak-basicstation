@@ -28,8 +28,7 @@ services:
       - SEMTECH_UDP_BIND=0.0.0.0:1700
       
       # LNS WebSocket server URI
-      #- LNS_SERVER=wss://localhost:8887
-      - LNS_SERVER=wss://lns01.xoseperez.com:3001
+      - LNS_SERVER=wss://localhost:8887
       - LNS_RECONNECT_INTERVAL=5s
       
       # CUPS configuration
