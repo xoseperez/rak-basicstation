@@ -1,28 +1,32 @@
 # RAK BasicStation Forwarder
 
-A LoRaWAN packet forwarder that implements the [LoRa Basics Station](https://doc.sm.tc/station/) protocol while using [ChirpStack Concentratord](https://github.com/chirpstack/chirpstack-concentratord) for SX130x hardware access.
+A LoRaWAN packet forwarder that implements the [LoRa Basics Station](https://doc.sm.tc/station/) protocol. It supports two backends for receiving uplink frames and sending downlinks:
+
+- **ChirpStack Concentratord** (ZMQ IPC) - communicates with concentratord for SX130x hardware access.
+- **Semtech UDP Packet Forwarder** - acts as a UDP server for any standard Semtech UDP packet forwarder (`lora_pkt_fwd` or compatible).
 
 ## What It Does
 
-This project replaces the original [BasicStation](https://github.com/lorabasics/basicstation) C implementation with a Rust application that communicates with the concentrator chip through ChirpStack Concentratord's ZeroMQ API instead of linking the Semtech HAL directly.
+This is a Rust implementation of the [LoRa Basics Station](https://github.com/lorabasics/basicstation) protocol that bridges gateway hardware (via either backend) with LoRaWAN Network Servers using the BasicStation LNS/CUPS protocols.
 
 ```text
-┌─────────────────────────────────────────────────┐
-│                rak-basicstation                 │
-│                                                 │
-│  ┌──────────────┐   ┌────────┐   ┌──────────┐   │
-│  │Concentratord │   │  LNS   │   │   CUPS   │   │
-│  │Backend (ZMQ) │   │ (WSS)  │   │ (HTTPS)  │   │
-│  └──────┬───────┘   └────┬───┘   └─────┬────┘   │
-│         │                │             │        │
-│         │   ┌────────────┴──────┐      │        │
-│         └───┤  Protocol Bridge  ├──────┘        │
-│             │ (protobuf ↔ JSON) │               │
-│             └───────────────────┘               │
-└─────────┬─────────────────┬─────────────┬───────┘
-          ▼                 ▼             ▼
-   Concentratord       LoRaWAN LNS    CUPS Server
-    (ZMQ IPC)         (WebSocket)      (HTTPS)
+┌──────────────────────────────────────────────────────────┐
+│                     rak-basicstation                     │
+│                                                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────┐  ┌───────┐  │
+│  │Concentratord │  │  Semtech UDP │  │ LNS │  │ CUPS  │  │
+│  │Backend (ZMQ) │  │Backend (UDP) │  │(WSS)│  │(HTTPS)│  │
+│  └──────┬───────┘  └──────┬───────┘  └──┬──┘  └──┬────┘  │
+│         │                 │             │        │       │
+│         └────────┬────────┘    ┌────────┴───┐    │       │
+│                  │             │  Protocol  │    │       │
+│                  └─────────────┤  Bridge    ├────┘       │
+│                                │(proto↔JSON)│            │
+│                                └────────────┘            │
+└──────────┬──────────┬──────────────┬─────────────┬───────┘
+           ▼          ▼              ▼             ▼
+    Concentratord  Semtech UDP   LoRaWAN LNS   CUPS Server
+     (ZMQ IPC)    Pkt Forwarder  (WebSocket)    (HTTPS)
 ```
 
 ## Features
@@ -40,6 +44,7 @@ This project replaces the original [BasicStation](https://github.com/lorabasics/
   - URI and credential updates from server
 - **Authentication**: TLS server auth, mutual TLS, and token-based auth
 - **CRC filtering**: Configurable forwarding of ok/invalid/missing CRC frames
+- **Dual backend**: ChirpStack Concentratord (ZMQ) or Semtech UDP Packet Forwarder, selectable via config
 
 ## Compatible With
 
@@ -50,7 +55,9 @@ This project replaces the original [BasicStation](https://github.com/lorabasics/
 
 ## Requirements
 
-- [ChirpStack Concentratord](https://github.com/chirpstack/chirpstack-concentratord) running and configured for your gateway hardware
+- A gateway backend (one of):
+  - [ChirpStack Concentratord](https://github.com/chirpstack/chirpstack-concentratord) running and configured for your gateway hardware
+  - A Semtech UDP Packet Forwarder (`lora_pkt_fwd` or compatible) sending to the configured UDP bind address
 - A LoRaWAN Network Server with BasicStation/LNS protocol support
 
 ## Building
@@ -59,12 +66,19 @@ This project replaces the original [BasicStation](https://github.com/lorabasics/
 
 - Rust 1.89+ (automatically managed via `rust-toolchain.toml`)
 - protobuf compiler (`protoc`) and include files
-- ZeroMQ development libraries (`libzmq3-dev` / `zeromq-devel`)
+- ZeroMQ development libraries (`libzmq3-dev` / `zeromq-devel`) — only needed for the `concentratord` feature
 
 ### Build
 
 ```sh
+# Both backends (default)
 cargo build --release
+
+# Only Semtech UDP backend (no ZMQ dependency)
+cargo build --release --no-default-features --features semtech_udp
+
+# Only Concentratord backend
+cargo build --release --no-default-features --features concentratord
 ```
 
 ### Cross-compilation
@@ -109,7 +123,7 @@ Pass one or more config files at startup:
 rak-basicstation -c /etc/rak-basicstation/rak-basicstation.toml
 ```
 
-### Example Configuration
+### Example Configuration (Concentratord backend)
 
 ```toml
 [logging]
@@ -117,6 +131,8 @@ rak-basicstation -c /etc/rak-basicstation/rak-basicstation.toml
   log_to_syslog = false
 
 [backend]
+  enabled = "concentratord"
+
   [backend.filters]
     forward_crc_ok = true
     forward_crc_invalid = false
@@ -128,22 +144,44 @@ rak-basicstation -c /etc/rak-basicstation/rak-basicstation.toml
 
 [lns]
   server = "wss://lns.example.com:8887"
-  # discovery_endpoint = "https://lns.example.com:8887"
   reconnect_interval = "5s"
-  ca_cert = ""
-  tls_cert = ""
-  tls_key = ""
+  ca_cert="..."
+  tls_cert="..."
+  tls_key="..."
 
 [cups]
   enabled = false
-  server = ""
-  oksync_interval = "24h"
-  resync_interval = "1m"
-  ca_cert = ""
-  tls_cert = ""
-  tls_key = ""
-  credentials_dir = "/var/lib/rak-basicstation/credentials"
-  sig_keys = []
+```
+
+### Example Configuration (Semtech UDP backend)
+
+```toml
+[logging]
+  level = "info"
+  log_to_syslog = false
+
+[backend]
+  enabled = "semtech_udp"
+  # gateway_id = ""  # Optional; auto-discovered from first PULL_DATA if empty
+
+  [backend.filters]
+    forward_crc_ok = true
+    forward_crc_invalid = false
+    forward_crc_missing = false
+
+  [backend.semtech_udp]
+    bind = "0.0.0.0:1700"
+    time_fallback_enabled = false
+
+[lns]
+  server = "wss://lns.example.com:8887"
+  reconnect_interval = "5s"
+  ca_cert="..."
+  tls_cert="..."
+  tls_key="..."
+
+[cups]
+  enabled = false
 ```
 
 Environment variables can be substituted in the config file using `$VAR_NAME` syntax.
@@ -214,8 +252,11 @@ src/
 ├── logging.rs              # stdout/syslog setup
 ├── metadata.rs             # Gateway metadata collection
 ├── backend/
-│   ├── mod.rs              # Backend trait and setup
-│   └── concentratord.rs    # ZMQ event/command sockets
+│   ├── mod.rs              # Backend trait, dispatch, and setup
+│   ├── concentratord.rs    # ZMQ event/command sockets
+│   └── semtech_udp/
+│       ├── mod.rs          # UDP server, protocol handling
+│       └── structs.rs      # Semtech UDP v2 protocol structs
 ├── lns/
 │   ├── mod.rs              # LNS connection loop
 │   ├── discovery.rs        # Router discovery (/router-info)

@@ -51,10 +51,24 @@ impl Default for Logging {
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
-#[derive(Default)]
 pub struct Backend {
+    pub enabled: String,
+    pub gateway_id: String,
     pub filters: Filters,
     pub concentratord: Concentratord,
+    pub semtech_udp: SemtechUdp,
+}
+
+impl Default for Backend {
+    fn default() -> Self {
+        Backend {
+            enabled: "concentratord".to_string(),
+            gateway_id: "".into(),
+            filters: Filters::default(),
+            concentratord: Concentratord::default(),
+            semtech_udp: SemtechUdp::default(),
+        }
+    }
 }
 
 
@@ -88,6 +102,22 @@ impl Default for Concentratord {
         Concentratord {
             event_url: "ipc:///tmp/concentratord_event".into(),
             command_url: "ipc:///tmp/concentratord_command".into(),
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SemtechUdp {
+    pub bind: String,
+    pub time_fallback_enabled: bool,
+}
+
+impl Default for SemtechUdp {
+    fn default() -> Self {
+        SemtechUdp {
+            bind: "0.0.0.0:1700".to_string(),
+            time_fallback_enabled: false,
         }
     }
 }

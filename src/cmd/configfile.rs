@@ -27,6 +27,19 @@ pub fn run(config: &Configuration) {
 # Backend configuration.
 [backend]
 
+  # Backend to use.
+  #
+  # Valid options are:
+  #   * concentratord  - ChirpStack Concentratord (ZMQ IPC)
+  #   * semtech_udp    - Semtech UDP Packet Forwarder
+  enabled="{{ backend.enabled }}"
+
+  # Gateway ID (optional).
+  #
+  # For concentratord: if empty, retrieved via GetGatewayId ZMQ command.
+  # For semtech_udp: if empty, auto-discovered from first PULL_DATA packet.
+  gateway_id="{{ backend.gateway_id }}"
+
   # Uplink CRC filters.
   [backend.filters]
 
@@ -47,6 +60,20 @@ pub fn run(config: &Configuration) {
 
     # Command API URL.
     command_url="{{ backend.concentratord.command_url }}"
+
+  # Semtech UDP Packet Forwarder backend configuration.
+  [backend.semtech_udp]
+
+    # UDP bind address.
+    #
+    # The address on which the backend will listen for packets from the
+    # Semtech UDP Packet Forwarder.
+    bind="{{ backend.semtech_udp.bind }}"
+
+    # Time fallback.
+    #
+    # Use system time as fallback when no time field is present in rxpk.
+    time_fallback_enabled={{ backend.semtech_udp.time_fallback_enabled }}
 
 
 # LNS (LoRa Network Server) protocol configuration.

@@ -4,12 +4,15 @@ use std::time::Duration;
 use anyhow::Result;
 use async_trait::async_trait;
 use chirpstack_api::gw;
-use log::{debug, info};
+use log::info;
 use tokio::sync::OnceCell;
 
 use crate::config::Configuration;
 
+#[cfg(feature = "concentratord")]
 pub mod concentratord;
+#[cfg(feature = "semtech_udp")]
+pub mod semtech_udp;
 
 static BACKEND: OnceCell<Box<dyn Backend + Sync + Send>> = OnceCell::const_new();
 
@@ -21,26 +24,36 @@ pub trait Backend {
 }
 
 pub async fn setup(conf: &Configuration) -> Result<()> {
-    info!("Setting up ChirpStack Concentratord backend");
-    let b = concentratord::Backend::setup(conf).await?;
-    BACKEND
-        .set(Box::new(b))
-        .map_err(|e| anyhow!("OnceCell error: {}", e))?;
+    match conf.backend.enabled.as_ref() {
+        #[cfg(feature = "semtech_udp")]
+        "semtech_udp" => {
+            info!("Setting up Semtech UDP Packet Forwarder backend");
+            let b = semtech_udp::Backend::setup(conf).await?;
+            BACKEND
+                .set(Box::new(b))
+                .map_err(|e| anyhow!("OnceCell error: {}", e))?;
+        }
+        #[cfg(feature = "concentratord")]
+        "concentratord" => {
+            info!("Setting up ChirpStack Concentratord backend");
+            let b = concentratord::Backend::setup(conf).await?;
+            BACKEND
+                .set(Box::new(b))
+                .map_err(|e| anyhow!("OnceCell error: {}", e))?;
+        }
+        _ => {
+            return Err(anyhow!("Unexpected backend: {}", conf.backend.enabled));
+        }
+    }
 
-    debug!("Retrieving Gateway ID from backend");
+    info!("Waiting for backend to report Gateway ID");
 
     loop {
-        match get_gateway_id().await {
-            Ok(id) => {
-                info!("Received Gateway ID from backend, gateway_id: {}", id);
-                break;
-            }
-            Err(e) => {
-                debug!("Could not get Gateway ID from backend, error: {}", e);
-            }
+        if let Ok(id) = get_gateway_id().await {
+            info!("Received Gateway ID from backend, gateway_id: {}", id);
+            break;
         }
 
-        debug!("Waiting for backend to report Gateway ID");
         sleep(Duration::from_secs(1));
     }
 
