@@ -1,0 +1,47 @@
+# rak-basicstation Docker configuration template.
+#
+# This file uses $VAR_NAME placeholders that are substituted at runtime
+# from environment variables defined in docker-compose.yml.
+
+[logging]
+  level="$LOG_LEVEL"
+  log_to_syslog=false
+
+
+[backend]
+  enabled="$BACKEND_ENABLED"
+  gateway_id="$BACKEND_GATEWAY_ID"
+
+  [backend.filters]
+    forward_crc_ok=true
+    forward_crc_invalid=false
+    forward_crc_missing=false
+
+  [backend.concentratord]
+    event_url="$CONCENTRATORD_EVENT_URL"
+    command_url="$CONCENTRATORD_COMMAND_URL"
+
+  [backend.semtech_udp]
+    bind="$SEMTECH_UDP_BIND"
+    time_fallback_enabled=false
+
+
+[lns]
+  server="$LNS_SERVER"
+  discovery_endpoint=""
+  reconnect_interval="$LNS_RECONNECT_INTERVAL"
+  ca_cert="/etc/rak-basicstation/certs/tc.trust"
+  tls_cert="/etc/rak-basicstation/certs/tc.cert"
+  tls_key="/etc/rak-basicstation/certs/tc.key"
+
+
+[cups]
+  enabled=$CUPS_ENABLED
+  server="$CUPS_SERVER"
+  oksync_interval="24h"
+  resync_interval="1m"
+  ca_cert="/etc/rak-basicstation/certs/cups.trust"
+  tls_cert="/etc/rak-basicstation/certs/cups.cert"
+  tls_key="/etc/rak-basicstation/certs/cups.key"
+  credentials_dir="/var/lib/rak-basicstation/credentials"
+  sig_keys=[]
