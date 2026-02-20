@@ -238,10 +238,15 @@ fn build_upinfo(rx_info: &gw::UplinkRxInfo, session: u8) -> Result<UpInfo> {
     })
 }
 
-/// Convert a little-endian byte slice to an EUI hex string (big-endian display).
+/// Convert a little-endian byte slice to a BasicStation EUI string (big-endian,
+/// dash-separated uppercase hex: "XX-XX-XX-XX-XX-XX-XX-XX").
 fn eui_from_le_bytes(bytes: &[u8]) -> String {
-    let reversed: Vec<u8> = bytes.iter().rev().copied().collect();
-    hex::encode(reversed).to_string()
+    bytes
+        .iter()
+        .rev()
+        .map(|b| format!("{:02X}", b))
+        .collect::<Vec<_>>()
+        .join("-")
 }
 
 #[cfg(test)]
@@ -251,6 +256,6 @@ mod tests {
     #[test]
     fn test_eui_from_le_bytes() {
         let bytes = [0x35, 0xA2, 0x10, 0xFF, 0x01, 0xC0, 0x16, 0x00];
-        assert_eq!(eui_from_le_bytes(&bytes), "0016c001ff10a235");
+        assert_eq!(eui_from_le_bytes(&bytes), "00-16-C0-01-FF-10-A2-35");
     }
 }
