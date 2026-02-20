@@ -1,7 +1,16 @@
 services:
+  
   rak-basicstation:
-    
+
+    container_name: rak-basicstation
+    image: rakwireless/basicstation
     build: .
+
+    depends_on:
+      chirpstack-concentratord:
+        condition: service_healthy
+    
+    restart: unless-stopped
     
     environment:
       
@@ -19,7 +28,8 @@ services:
       - SEMTECH_UDP_BIND=0.0.0.0:1700
       
       # LNS WebSocket server URI
-      - LNS_SERVER=wss://localhost:8887
+      #- LNS_SERVER=wss://localhost:8887
+      - LNS_SERVER=wss://lns01.xoseperez.com:3001
       - LNS_RECONNECT_INTERVAL=5s
       
       # CUPS configuration
@@ -42,6 +52,28 @@ services:
     
     ports:
       - "1700:1700/udp"
+
+  # See https://github.com/xoseperez/chirpstack-concentratord-docker
+  chirpstack-concentratord:
+
+    container_name: chirpstack-concentratord
+    image: xoseperez/chirpstack-concentratord
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "test", "-S", "/tmp/concentratord_command"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    volumes:
+      - /tmp:/tmp
+    devices:
+      - /dev/rak5146:/dev/ttyACM0
+    group_add:
+      - dialout
+    environment:
+      - MODEL=RAK5146
+      - INTERFACE=USB
 
 volumes:
   cups-credentials:
