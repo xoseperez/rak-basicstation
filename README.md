@@ -8,12 +8,12 @@ This project replaces the original [BasicStation](https://github.com/lorabasics/
 
 ```text
 ┌─────────────────────────────────────────────────┐
-│                rak-basicstation                  │
+│                rak-basicstation                 │
 │                                                 │
-│  ┌──────────────┐   ┌────────┐   ┌──────────┐  │
-│  │Concentratord │   │  LNS   │   │   CUPS   │  │
-│  │Backend (ZMQ) │   │ (WSS)  │   │ (HTTPS)  │  │
-│  └──────┬───────┘   └───┬────┘   └────┬─────┘  │
+│  ┌──────────────┐   ┌────────┐   ┌──────────┐   │
+│  │Concentratord │   │  LNS   │   │   CUPS   │   │
+│  │Backend (ZMQ) │   │ (WSS)  │   │ (HTTPS)  │   │
+│  └──────┬───────┘   └────┬───┘   └─────┬────┘   │
 │         │                │             │        │
 │         │   ┌────────────┴──────┐      │        │
 │         └───┤  Protocol Bridge  ├──────┘        │
