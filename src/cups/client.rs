@@ -1,5 +1,6 @@
 use anyhow::Result;
 use log::debug;
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 
 use crate::config::Configuration;
 
@@ -176,6 +177,12 @@ fn build_client(conf: &Configuration) -> Result<reqwest::Client> {
         identity_pem.extend_from_slice(&key_data);
         let identity = reqwest::Identity::from_pem(&identity_pem)?;
         builder = builder.identity(identity);
+    } else if conf.cups.tls_cert.is_empty() && !conf.cups.tls_key.is_empty() {
+        let token = std::fs::read_to_string(&conf.cups.tls_key)?.trim().to_string();
+        let mut headers = HeaderMap::new();
+        let auth_value = HeaderValue::from_str(&format!("Bearer {}", token))?;
+        headers.insert(AUTHORIZATION, auth_value);
+        builder = builder.default_headers(headers);
     }
 
     Ok(builder.build()?)

@@ -29,6 +29,21 @@ static ROUTER_CONFIG: LazyLock<RwLock<Option<router_config::RouterConfigState>>>
 /// Last MuxTime received from LNS (for RefTime echo).
 static LAST_MUX_TIME: LazyLock<RwLock<Option<f64>>> = LazyLock::new(|| RwLock::new(None));
 
+/// TC URI provided by CUPS (overrides conf.lns.server when set).
+static CUPS_TC_URI: LazyLock<RwLock<Option<String>>> = LazyLock::new(|| RwLock::new(None));
+
+/// Auth headers parsed from the TC credential blob provided by CUPS.
+static CUPS_TC_AUTH_HEADERS: LazyLock<RwLock<Vec<(String, String)>>> =
+    LazyLock::new(|| RwLock::new(Vec::new()));
+
+pub fn set_cups_tc_uri(uri: String) {
+    *CUPS_TC_URI.write().unwrap() = Some(uri);
+}
+
+pub fn set_cups_tc_auth_headers(headers: Vec<(String, String)>) {
+    *CUPS_TC_AUTH_HEADERS.write().unwrap() = headers;
+}
+
 pub async fn setup(conf: &Configuration) -> Result<()> {
     let gateway_id = crate::backend::get_gateway_id().await?;
     let conf = Arc::new(conf.clone());
@@ -56,10 +71,13 @@ async fn connection_loop(conf: Arc<Configuration>, gateway_id: String) {
         // The BasicStation protocol always performs discovery first: the gateway
         // opens a WebSocket to <server>/router-info, sends {"router":"<id6>"},
         // and receives the actual MUXS WebSocket URI in response.
+        // Priority: explicit discovery_endpoint > lns.server > CUPS-provided TC URI.
         let discovery_base = if !conf.lns.discovery_endpoint.is_empty() {
             conf.lns.discovery_endpoint.clone()
-        } else {
+        } else if !conf.lns.server.is_empty() {
             conf.lns.server.clone()
+        } else {
+            CUPS_TC_URI.read().unwrap().clone().unwrap_or_default()
         };
 
         let auth_headers = match parse_auth_token(&conf.lns) {
@@ -217,27 +235,21 @@ pub fn send_ws_message(msg: String) -> Result<()> {
 ///
 /// Returns a vec of (header_name, header_value) pairs.
 fn parse_auth_token(lns: &Lns) -> Result<Vec<(String, String)>> {
-    // Token auth mode: tls_key is set but tls_cert is empty.
-    if lns.tls_key.is_empty() || !lns.tls_cert.is_empty() {
-        return Ok(Vec::new());
+    // Config-based token auth: tls_cert empty, tls_key set.
+    // tls_key file contains just the raw API key (no "Bearer " prefix).
+    if lns.tls_cert.is_empty() && !lns.tls_key.is_empty() {
+        let token = std::fs::read_to_string(&lns.tls_key)?.trim().to_string();
+        debug!("Using config-based auth token from {}", lns.tls_key);
+        return Ok(vec![(
+            "Authorization".to_string(),
+            format!("Bearer {}", token),
+        )]);
     }
 
-    let content = std::fs::read_to_string(&lns.tls_key)?;
-    let mut headers = Vec::new();
-
-    for line in content.lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let (name, value) = line
-            .split_once(": ")
-            .ok_or_else(|| anyhow!("Invalid auth token header line: {}", line))?;
-
-        headers.push((name.to_string(), value.to_string()));
+    // CUPS-provided auth headers (parsed from the TC credential blob).
+    let headers = CUPS_TC_AUTH_HEADERS.read().unwrap().clone();
+    if !headers.is_empty() {
+        debug!("Using CUPS-provided TC auth headers");
     }
-
-    debug!("Parsed {} auth token header(s) from tls_key file", headers.len());
     Ok(headers)
 }

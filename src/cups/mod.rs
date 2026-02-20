@@ -15,6 +15,25 @@ pub async fn setup(conf: &Configuration) -> Result<()> {
         return Ok(());
     }
 
+    // Restore previously saved TC state so the LNS can connect immediately,
+    // before the first CUPS check completes.
+    let cred_dir = &conf.cups.credentials_dir;
+    let saved_tc_uri = format!("{}/tc.uri", cred_dir);
+    if let Ok(uri) = std::fs::read_to_string(&saved_tc_uri) {
+        let uri = uri.trim().to_string();
+        if !uri.is_empty() {
+            debug!("Restored TC URI from {}", saved_tc_uri);
+            crate::lns::set_cups_tc_uri(uri);
+        }
+    }
+    let saved_tc_cred = format!("{}/tc.cred", cred_dir);
+    if let Ok(data) = std::fs::read(&saved_tc_cred)
+        && let Some((name, value)) = credentials::parse_token_from_cred(&data)
+    {
+        debug!("Restored TC auth token from {}", saved_tc_cred);
+        crate::lns::set_cups_tc_auth_headers(vec![(name, value)]);
+    }
+
     let gateway_id = crate::backend::get_gateway_id().await?;
     let conf = Arc::new(conf.clone());
 
@@ -52,11 +71,18 @@ async fn run_update(conf: &Configuration, gateway_id: &str) -> Result<()> {
         &conf.cups.tls_key,
     )?;
 
-    let tc_cred_crc = credentials::compute_cred_crc(
-        &conf.lns.ca_cert,
-        &conf.lns.tls_cert,
-        &conf.lns.tls_key,
-    )?;
+    // If CUPS previously provided a TC credential blob, use its CRC.
+    // Otherwise fall back to the LNS credential files from config.
+    let saved_tc_cred = format!("{}/tc.cred", conf.cups.credentials_dir);
+    let tc_cred_crc = if std::path::Path::new(&saved_tc_cred).exists() {
+        credentials::compute_cred_crc_from_file(&saved_tc_cred)?
+    } else {
+        credentials::compute_cred_crc(
+            &conf.lns.ca_cert,
+            &conf.lns.tls_cert,
+            &conf.lns.tls_key,
+        )?
+    };
 
     let sig_key_crcs = credentials::compute_sig_key_crcs(&conf.cups.sig_keys)?;
 
@@ -81,6 +107,13 @@ async fn run_update(conf: &Configuration, gateway_id: &str) -> Result<()> {
 
     if let Some(ref uri) = update.tc_uri {
         info!("CUPS provided new TC/LNS URI: {}", uri);
+        crate::lns::set_cups_tc_uri(uri.clone());
+        let tc_uri_path = format!("{}/tc.uri", conf.cups.credentials_dir);
+        if let Err(e) = credentials::save_uri(&conf.cups.credentials_dir, "tc.uri", uri) {
+            warn!("Failed to save TC URI: {}", e);
+        } else {
+            debug!("Saved TC URI to {}", tc_uri_path);
+        }
     }
 
     if update.cups_cred.is_some() {
@@ -92,12 +125,25 @@ async fn run_update(conf: &Configuration, gateway_id: &str) -> Result<()> {
         }
     }
 
-    if update.tc_cred.is_some() {
+    if let Some(ref tc_cred) = update.tc_cred {
         info!("CUPS provided new TC credentials");
+
+        // Save the raw blob to disk for CRC tracking on the next CUPS check.
         if let Err(e) =
             credentials::save_credentials(&conf.cups.credentials_dir, "tc", &update.tc_cred)
         {
             warn!("Failed to save TC credentials: {}", e);
+        }
+
+        // Parse the blob: in token mode the key field is a raw HTTP header line.
+        if let Some((name, value)) = credentials::parse_token_from_cred(tc_cred) {
+            info!("TC credential is in token mode, header: {}", name);
+            crate::lns::set_cups_tc_auth_headers(vec![(name, value)]);
+        } else {
+            info!(
+                "TC credential is a TLS certificate; \
+                 set lns.tls_cert + lns.tls_key for mTLS"
+            );
         }
     }
 
