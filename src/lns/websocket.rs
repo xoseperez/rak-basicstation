@@ -2,6 +2,7 @@ use std::fs;
 use std::sync::Arc;
 
 use anyhow::Result;
+use rustls_pki_types::pem::PemObject;
 use futures_util::{SinkExt, StreamExt};
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc;
@@ -261,7 +262,7 @@ pub fn build_tls_connector(conf: &Configuration) -> Result<Arc<rustls::ClientCon
     // Load custom CA cert if configured.
     if !conf.lns.ca_cert.is_empty() {
         let ca_data = fs::read(&conf.lns.ca_cert)?;
-        let ca_certs = rustls_pemfile::certs(&mut ca_data.as_slice())
+        let ca_certs = rustls_pki_types::CertificateDer::pem_slice_iter(ca_data.as_slice())
             .filter_map(|r| r.ok())
             .collect::<Vec<_>>();
         for cert in ca_certs {
@@ -276,11 +277,11 @@ pub fn build_tls_connector(conf: &Configuration) -> Result<Arc<rustls::ClientCon
         let cert_data = fs::read(&conf.lns.tls_cert)?;
         let key_data = fs::read(&conf.lns.tls_key)?;
 
-        let certs: Vec<_> = rustls_pemfile::certs(&mut cert_data.as_slice())
+        let certs: Vec<_> = rustls_pki_types::CertificateDer::pem_slice_iter(cert_data.as_slice())
             .filter_map(|r| r.ok())
             .collect();
-        let key = rustls_pemfile::private_key(&mut key_data.as_slice())?
-            .ok_or_else(|| anyhow!("No private key found in TLS key file"))?;
+        let key = rustls_pki_types::PrivateKeyDer::from_pem_slice(key_data.as_slice())
+            .map_err(|_| anyhow!("No private key found in TLS key file"))?;
 
         builder.with_client_auth_cert(certs, key)?
     } else {
