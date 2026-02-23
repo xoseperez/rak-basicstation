@@ -65,8 +65,12 @@ This is a Rust implementation of the [LoRa Basics Station](https://github.com/lo
 ### Prerequisites
 
 - Rust 1.89+ (automatically managed via `rust-toolchain.toml`)
-- protobuf compiler (`protoc`) and include files
-- ZeroMQ development libraries (`libzmq3-dev` / `zeromq-devel`) — only needed for the `concentratord` feature
+- protobuf compiler (`protoc`) with well-known types:
+  - Fedora/RHEL: `sudo dnf install protobuf-devel`
+  - Debian/Ubuntu: `sudo apt install protobuf-compiler libprotobuf-dev`
+- ZeroMQ development libraries — only needed for the `concentratord` feature:
+  - Fedora/RHEL: `sudo dnf install zeromq-devel`
+  - Debian/Ubuntu: `sudo apt install libzmq3-dev`
 
 ### Build
 
