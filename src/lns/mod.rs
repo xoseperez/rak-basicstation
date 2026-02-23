@@ -83,7 +83,7 @@ async fn connection_loop(conf: Arc<Configuration>, gateway_id: String) {
         let auth_headers = match parse_auth_token(&conf.lns) {
             Ok(h) => h,
             Err(e) => {
-                error!("Failed to parse auth token: {}", e);
+                error!("Failed to configure auth token: check tls_key config");
                 tokio::time::sleep(conf.lns.reconnect_interval).await;
                 continue;
             }
