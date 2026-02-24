@@ -58,12 +58,12 @@ pub async fn run(
     // Send version message.
     let version_msg = VersionMessage {
         msgtype: "version".to_string(),
-        station: format!("rak-basicstation {}", env!("CARGO_PKG_VERSION")),
-        firmware: env!("CARGO_PKG_VERSION").to_string(),
-        package: env!("CARGO_PKG_VERSION").to_string(),
-        model: "chirpstack-concentratord".to_string(),
+        station: "2.0.6(linux/std)".to_string(),
+        firmware: format!("rak-basicstation v{} ({} backend)", env!("CARGO_PKG_VERSION"), conf.backend.enabled),
+        package: String::new(),
+        model: std::env::consts::ARCH.to_string(),
         protocol: 2,
-        features: "prod gps".to_string(),
+        features: String::new(),
     };
     let version_json = serde_json::to_string(&version_msg)?;
     debug!("Sending version message: {}", version_json);

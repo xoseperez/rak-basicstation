@@ -37,9 +37,9 @@ pub async fn post_update_info(
         "tcUri": tc_uri,
         "cupsCredCrc": cups_cred_crc,
         "tcCredCrc": tc_cred_crc,
-        "station": format!("rak-basicstation {}", env!("CARGO_PKG_VERSION")),
-        "model": "chirpstack-concentratord",
-        "package": env!("CARGO_PKG_VERSION"),
+        "station": "2.0.6(linux/std)",
+        "model": std::env::consts::ARCH,
+        "package": format!("rak-basicstation v{} ({} backend)", env!("CARGO_PKG_VERSION"), conf.backend.enabled),
         "keys": sig_key_crcs,
     });
 
