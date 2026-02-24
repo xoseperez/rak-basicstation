@@ -1,10 +1,10 @@
 [package]
   name = "rak-basicstation"
-  description = "RAK ChirpStack BasicStation Forwarder"
+  description = "RAK BasicStation Forwarder"
   repository = "https://github.com/RAKWireless/rak-basicstation"
   homepage = "https://www.rakwireless.com/"
   license = "MIT"
-  version = "0.1.0"
+  version = "0.2.0"
   authors = ["RAKwireless"]
   edition = "2024"
   publish = false
