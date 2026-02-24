@@ -1,0 +1,18 @@
+# Hidden files
+.*
+!.github
+!.vscode
+!.env
+!.gitignore
+!.dockerignore
+
+# Config files & folders
+/rak-basicstation.toml
+/certs
+
+# Rust target directory
+/target
+
+# IPK packages
+*.ipk
+/dist
