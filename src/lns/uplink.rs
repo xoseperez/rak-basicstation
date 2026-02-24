@@ -126,7 +126,7 @@ pub fn frame_to_json(
             };
 
             debug!(
-                "Sending uplink, DevAddr: {:08x}, DR: {}, Freq: {}",
+                "Sending updf uplink, DevAddr: {:08x}, DR: {}, Freq: {}",
                 dev_addr, dr, freq
             );
             Ok(serde_json::to_string(&msg)?)
