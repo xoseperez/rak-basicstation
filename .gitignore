@@ -6,8 +6,7 @@
 !.gitignore
 !.dockerignore
 
-# Config files & folders
-/rak-basicstation.toml
+# Config folders
 /certs
 
 # Rust target directory
