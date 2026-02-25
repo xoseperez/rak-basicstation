@@ -1,4 +1,9 @@
-use std::sync::{Arc, LazyLock, RwLock};
+use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, LazyLock, Mutex, RwLock,
+};
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use chirpstack_api::gw;
@@ -36,6 +41,17 @@ static CUPS_TC_URI: LazyLock<RwLock<Option<String>>> = LazyLock::new(|| RwLock::
 static CUPS_TC_AUTH_HEADERS: LazyLock<RwLock<Vec<(String, String)>>> =
     LazyLock::new(|| RwLock::new(Vec::new()));
 
+/// Whether context caching is enabled (concentratord backend only).
+static CONTEXT_CACHING_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// TTL for cached rx_info contexts.
+const CONTEXT_CACHE_TTL: Duration = Duration::from_secs(60);
+
+/// Cache of full rx_info.context blobs, keyed by xtime.
+#[allow(clippy::type_complexity)]
+static CONTEXT_CACHE: LazyLock<Mutex<HashMap<i64, (Vec<u8>, Instant)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
 pub fn set_cups_tc_uri(uri: String) {
     *CUPS_TC_URI.write().unwrap() = Some(uri);
 }
@@ -44,9 +60,47 @@ pub fn set_cups_tc_auth_headers(headers: Vec<(String, String)>) {
     *CUPS_TC_AUTH_HEADERS.write().unwrap() = headers;
 }
 
+fn cache_context(xtime: i64, context: Vec<u8>) {
+    CONTEXT_CACHE
+        .lock()
+        .unwrap()
+        .insert(xtime, (context, Instant::now()));
+}
+
+pub fn get_cached_context(xtime: i64) -> Option<Vec<u8>> {
+    if !CONTEXT_CACHING_ENABLED.load(Ordering::Relaxed) {
+        return None;
+    }
+    CONTEXT_CACHE
+        .lock()
+        .unwrap()
+        .get(&xtime)
+        .map(|(ctx, _)| ctx.clone())
+}
+
+fn sweep_context_cache() {
+    let now = Instant::now();
+    CONTEXT_CACHE
+        .lock()
+        .unwrap()
+        .retain(|_, (_, inserted)| now.duration_since(*inserted) < CONTEXT_CACHE_TTL);
+}
+
 pub async fn setup(conf: &Configuration) -> Result<()> {
     let gateway_id = crate::backend::get_gateway_id().await?;
     let conf = Arc::new(conf.clone());
+
+    if conf.backend.concentratord.context_caching {
+        CONTEXT_CACHING_ENABLED.store(true, Ordering::Relaxed);
+        info!("Context caching enabled for concentratord backend");
+        tokio::spawn(async {
+            let mut ticker = tokio::time::interval(Duration::from_secs(30));
+            loop {
+                ticker.tick().await;
+                sweep_context_cache();
+            }
+        });
+    }
 
     tokio::spawn({
         let conf = conf.clone();
@@ -189,6 +243,20 @@ pub async fn send_uplink(frame: &gw::UplinkFrame) -> Result<()> {
         let s = SESSION_COUNTER.read().unwrap();
         *s
     };
+
+    if CONTEXT_CACHING_ENABLED.load(Ordering::Relaxed)
+        && let Some(rx_info) = &frame.rx_info
+        && rx_info.context.len() >= 4
+    {
+        let count_us = u32::from_be_bytes([
+            rx_info.context[0],
+            rx_info.context[1],
+            rx_info.context[2],
+            rx_info.context[3],
+        ]) as i64;
+        let xtime = ((session as i64) << 48) | (count_us & 0x0000_FFFF_FFFF_FFFF);
+        cache_context(xtime, rx_info.context.clone());
+    }
 
     let msg = uplink::frame_to_json(frame, &rc, session, ref_time)?;
 

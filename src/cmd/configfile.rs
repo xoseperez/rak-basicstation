@@ -61,6 +61,11 @@ pub fn run(config: &Configuration) {
     # Command API URL.
     command_url="{{ backend.concentratord.command_url }}"
 
+    # Cache full rx_info.context on uplink and restore it verbatim on the
+    # matching downlink. 
+    # Enable this when using chirpstack-gateway-mesh as backend.
+    context_caching={{ backend.concentratord.context_caching }}
+
   # Semtech UDP Packet Forwarder backend configuration.
   [backend.semtech_udp]
 

@@ -142,7 +142,8 @@ fn build_class_a_downlink(
         .xtime
         .ok_or_else(|| anyhow!("Class A dnmsg missing xtime"))?;
     let count_us = (xtime & 0x0000_FFFF_FFFF_FFFF) as u32;
-    let context = count_us.to_be_bytes().to_vec();
+    let context = super::get_cached_context(xtime)
+        .unwrap_or_else(|| count_us.to_be_bytes().to_vec());
 
     debug!(
         "Class A downlink, xtime: {}, count_us: {}, rx_delay: {}, rctx: {:?}",
@@ -259,7 +260,8 @@ fn build_class_c_downlink(
     // If xtime is present, this is a Class C response to an uplink (schedule like Class A).
     if let Some(xtime) = msg.xtime {
         let count_us = (xtime & 0x0000_FFFF_FFFF_FFFF) as u32;
-        let context = count_us.to_be_bytes().to_vec();
+        let context = super::get_cached_context(xtime)
+            .unwrap_or_else(|| count_us.to_be_bytes().to_vec());
         let rx_delay = msg.rx_delay.unwrap_or(1) as u32;
 
         // RX1 window.

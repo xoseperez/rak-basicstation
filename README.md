@@ -45,6 +45,7 @@ This is a Rust implementation of the [LoRa Basics Station](https://github.com/lo
 - **Authentication**: TLS server auth, mutual TLS, and token-based auth
 - **CRC filtering**: Configurable forwarding of ok/invalid/missing CRC frames
 - **Dual backend**: ChirpStack Concentratord (ZMQ) or Semtech UDP Packet Forwarder, selectable via config
+- **Context caching** (concentratord): optionally caches the full `rx_info.context` blob on uplink and restores it verbatim on the matching downlink
 
 ## Compatible With
 
@@ -145,6 +146,7 @@ rak-basicstation -c /etc/rak-basicstation/rak-basicstation.toml
   [backend.concentratord]
     event_url = "ipc:///tmp/concentratord_event"
     command_url = "ipc:///tmp/concentratord_command"
+    # context_caching = false  # Set to true when using chirpstack-gateway-mesh
 
 [lns]
   server = "wss://lns.example.com:8887"

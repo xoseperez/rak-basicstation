@@ -95,6 +95,7 @@ impl Default for Filters {
 pub struct Concentratord {
     pub event_url: String,
     pub command_url: String,
+    pub context_caching: bool,
 }
 
 impl Default for Concentratord {
@@ -102,6 +103,7 @@ impl Default for Concentratord {
         Concentratord {
             event_url: "ipc:///tmp/concentratord_event".into(),
             command_url: "ipc:///tmp/concentratord_command".into(),
+            context_caching: false,
         }
     }
 }
