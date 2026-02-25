@@ -1,30 +1,34 @@
 .PHONY: dist
 
+CROSS := .cargo/bin/cross
+
 # Compile the binaries for all targets.
 build: \
 	build-x86_64-unknown-linux-musl \
 	build-aarch64-unknown-linux-musl \
 	build-armv5te-unknown-linux-musleabi \
-	build-armv7-unknown-linux-musleabihf
+	build-armv7-unknown-linux-musleabihf \
+	build-mipsel-unknown-linux-musl
 
 build-x86_64-unknown-linux-musl:
-	cross build --target x86_64-unknown-linux-musl --release
+	$(CROSS) build --target x86_64-unknown-linux-musl --release
 
 build-aarch64-unknown-linux-musl:
-	cross build --target aarch64-unknown-linux-musl --release
+	$(CROSS) build --target aarch64-unknown-linux-musl --release
 
 build-armv5te-unknown-linux-musleabi:
-	cross build --target armv5te-unknown-linux-musleabi --release
+	$(CROSS) build --target armv5te-unknown-linux-musleabi --release
 
 build-armv7-unknown-linux-musleabihf:
-	cross build --target armv7-unknown-linux-musleabihf --release
+	$(CROSS) build --target armv7-unknown-linux-musleabihf --release
 
 # Build distributable binaries for all targets.
 dist: \
 	dist-x86_64-unknown-linux-musl \
 	dist-aarch64-unknown-linux-musl \
 	dist-armv5te-unknown-linux-musleabi \
-	dist-armv7-unknown-linux-musleabihf
+	dist-armv7-unknown-linux-musleabihf \
+	dist-mipsel-unknown-linux-musl
 
 dist-x86_64-unknown-linux-musl: build-x86_64-unknown-linux-musl package-x86_64-unknown-linux-musl
 
@@ -33,6 +37,8 @@ dist-aarch64-unknown-linux-musl: build-aarch64-unknown-linux-musl package-aarch6
 dist-armv5te-unknown-linux-musleabi: build-armv5te-unknown-linux-musleabi package-armv5te-unknown-linux-musleabi
 
 dist-armv7-unknown-linux-musleabihf: build-armv7-unknown-linux-musleabihf package-armv7-unknown-linux-musleabihf
+
+dist-mipsel-unknown-linux-musl: build-mipsel-unknown-linux-musl package-mipsel-unknown-linux-musl
 
 # Package the compiled binaries
 package-x86_64-unknown-linux-musl:
@@ -78,6 +84,22 @@ package-armv5te-unknown-linux-musleabi:
 	# .deb
 	cargo deb --target armv5te-unknown-linux-musleabi --no-build --no-strip
 	cp target/armv5te-unknown-linux-musleabi/debian/*.deb ./dist
+
+package-mipsel-unknown-linux-musl: package-rak-mipsel_24kc
+
+package-rak-mipsel_24kc:
+	cd packaging/vendor/rak/mipsel_24kc && ./package.sh
+	mkdir -p dist/vendor/rak/mipsel_24kc
+	cp packaging/vendor/rak/mipsel_24kc/*.ipk dist/vendor/rak/mipsel_24kc
+
+build-mipsel-unknown-linux-musl:
+	# mipsel is a tier-3 target.
+	rustup toolchain add nightly-2026-01-27-x86_64-unknown-linux-gnu
+	$(CROSS) +nightly-2026-01-27 build -Z build-std=panic_abort,std --target mipsel-unknown-linux-musl --release --no-default-features --features semtech_udp
+
+# Install pinned build dependencies (run once before cross-compiling).
+dev-dependencies:
+	cargo install cross --git https://github.com/cross-rs/cross --rev 452dc27a11d4f58d65309f8455c5cf7558f60513 --locked --root .cargo
 
 # Update the version.
 version:

@@ -88,17 +88,18 @@ cargo build --release --no-default-features --features concentratord
 
 ### Cross-compilation
 
-Cross-compilation for embedded targets uses the `cross` tool:
+Cross-compilation for embedded targets uses the `cross` tool. A specific pinned revision is
+required — use the Makefile target to install it locally:
 
 ```sh
-# Install cross
-cargo install cross
+# Install the pinned cross version into .cargo/bin/ (once)
+make dev-dependencies
 
 # Build for all targets
 make build
 
 # Build for a specific target
-cross build --target aarch64-unknown-linux-musl --release
+make build-aarch64-unknown-linux-musl
 ```
 
 Supported targets:
@@ -106,6 +107,13 @@ Supported targets:
 - `aarch64-unknown-linux-musl` (ARM64, e.g. Raspberry Pi 4)
 - `armv7-unknown-linux-musleabihf` (ARM32 hard-float)
 - `armv5te-unknown-linux-musleabi` (ARM v5)
+- `mipsel-unknown-linux-musl` (MIPS little-endian, RAK OpenWrt gateways)
+
+> **Note:** MIPSEL is a Rust tier-3 target and requires a nightly toolchain.
+> It is built with `--no-default-features --features semtech_udp` (the concentratord/ZMQ
+> backend is not supported on this target). Use the Makefile target
+> `build-mipsel-unknown-linux-musl`, which handles the required
+> `cross +nightly-2026-01-27 -Z build-std=panic_abort,std` flags automatically.
 
 ### Tests
 

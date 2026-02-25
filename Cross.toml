@@ -9,3 +9,6 @@ dockerfile="cross/Dockerfile.armv7-unknown-linux-musleabihf"
 
 [target.armv5te-unknown-linux-musleabi]
 dockerfile="cross/Dockerfile.armv5te-unknown-linux-musleabi"
+
+[target.mipsel-unknown-linux-musl]
+dockerfile="cross/Dockerfile.mipsel-unknown-linux-musl"

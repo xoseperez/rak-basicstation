@@ -1,0 +1,12 @@
+[logging]
+  level = "info"
+
+[backend]
+  enabled = "semtech_udp"
+
+  [backend.semtech_udp]
+    bind = "0.0.0.0:1700"
+
+[lns]
+  server = "wss://lns.example.com:8887"
+  reconnect_interval = "5s"
