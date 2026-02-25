@@ -95,7 +95,7 @@ package-rak-mipsel_24kc:
 build-mipsel-unknown-linux-musl:
 	# mipsel is a tier-3 target.
 	rustup toolchain add nightly-2026-01-27-x86_64-unknown-linux-gnu
-	$(CROSS) +nightly-2026-01-27 build -Z build-std=panic_abort,std --target mipsel-unknown-linux-musl --release --no-default-features --features semtech_udp
+	$(CROSS) +nightly-2026-01-27 build -Z build-std=panic_abort,std --target mipsel-unknown-linux-musl --release
 
 # Install pinned build dependencies (run once before cross-compiling).
 dev-dependencies:

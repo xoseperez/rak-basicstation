@@ -110,8 +110,8 @@ Supported targets:
 - `mipsel-unknown-linux-musl` (MIPS little-endian, RAK OpenWrt gateways)
 
 > **Note:** MIPSEL is a Rust tier-3 target and requires a nightly toolchain.
-> It is built with `--no-default-features --features semtech_udp` (the concentratord/ZMQ
-> backend is not supported on this target). Use the Makefile target
+> Both backends are built by default; `zmq-sys` compiles `libzmq` from its bundled source
+> via cmake, so no pre-installed system library is needed. Use the Makefile target
 > `build-mipsel-unknown-linux-musl`, which handles the required
 > `cross +nightly-2026-01-27 -Z build-std=panic_abort,std` flags automatically.
 
