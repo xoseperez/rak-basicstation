@@ -1,0 +1,10 @@
+{
+    "admin/rak/rak-basicstation": {
+        "title": "BasicStation Forwarder",
+        "order": 10,
+        "action": {
+            "type": "view",
+            "path": "rak/rak-basicstation"
+        }
+    }
+}
