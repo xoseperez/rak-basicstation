@@ -287,7 +287,46 @@ src/
 └── cmd/
     ├── mod.rs
     └── configfile.rs        # Config template generator
+openwrt/
+├── rak-basicstation/           # OpenWrt package (binary + init + UCI config)
+│   ├── Makefile
+│   └── files/
+│       ├── rak-basicstation.init    # procd init script
+│       ├── rak-basicstation.sh      # UCI → TOML config generator
+│       └── rak-basicstation.config  # Default UCI config
+└── luci-app-rak-basicstation/  # LuCI web UI package
+    ├── Makefile
+    ├── htdocs/luci-static/resources/view/rak/rak-basicstation.js
+    └── root/usr/share/luci/menu.d/luci-app-rak-basicstation.json
 ```
+
+## OpenWrt Package
+
+Two OpenWrt packages are provided in the `openwrt/` directory for integration into the OpenWrt build system:
+
+| Package | Description |
+|---|---|
+| `rak-basicstation` | Binary, procd init script, UCI→TOML config generator shell library, and default UCI config |
+| `luci-app-rak-basicstation` | LuCI web UI with tabbed forms for Backend, LNS, and CUPS settings |
+
+To add these packages to an OpenWrt build:
+
+```sh
+# Add openwrt/ sub-directories as a local feed in feeds.conf, then:
+./scripts/feeds update -a && ./scripts/feeds install rak-basicstation luci-app-rak-basicstation
+make package/rak-basicstation/compile
+make package/luci-app-rak-basicstation/compile
+```
+
+**Configuration on the device:**
+
+UCI configuration is stored in `/etc/config/rak-basicstation`. On each service start or reload the init script calls `rak-basicstation.sh`, which:
+
+1. Writes any certificate/key PEM content from UCI options to files under `/var/etc/rak-basicstation/`.
+2. Generates a TOML config at `/var/etc/rak-basicstation/rak-basicstation.toml`.
+3. Passes that TOML file to the binary via `-c`.
+
+The LuCI app (`luci-app-rak-basicstation`) provides a web UI under **RAK → BasicStation Forwarder** with tabs for Backend (concentratord slot, context caching), LNS (server URI, certificates), and CUPS settings.
 
 ## License
 
