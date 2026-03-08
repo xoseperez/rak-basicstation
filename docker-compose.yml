@@ -13,30 +13,30 @@ services:
     restart: unless-stopped
     
     environment:
-      
+
       # Backend selection: "concentratord" or "semtech_udp"
-      - BACKEND_ENABLED=concentratord
-      
+      #- BACKEND_ENABLED=concentratord
+
       # Gateway ID (leave empty for auto-discovery)
-      - BACKEND_GATEWAY_ID=
-      
+      #- BACKEND_GATEWAY_ID=
+
       # Concentratord ZMQ IPC URLs
-      - CONCENTRATORD_EVENT_URL=ipc:///tmp/concentratord_event
-      - CONCENTRATORD_COMMAND_URL=ipc:///tmp/concentratord_command
-      
+      #- CONCENTRATORD_EVENT_URL=ipc:///tmp/concentratord_event
+      #- CONCENTRATORD_COMMAND_URL=ipc:///tmp/concentratord_command
+
       # Semtech UDP backend bind address
-      - SEMTECH_UDP_BIND=0.0.0.0:1700
-      
+      #- SEMTECH_UDP_BIND=0.0.0.0:1700
+
       # LNS WebSocket server URI
       - LNS_SERVER=wss://localhost:8887
-      - LNS_RECONNECT_INTERVAL=5s
-      
+      #- LNS_RECONNECT_INTERVAL=5s
+
       # CUPS configuration
-      - CUPS_ENABLED=false
-      - CUPS_SERVER=
-      
+      #- CUPS_ENABLED=false
+      #- CUPS_SERVER=
+
       # Logging level: TRACE, DEBUG, INFO, WARN, ERROR, OFF
-      - LOG_LEVEL=info
+      #- LOG_LEVEL=info
     
     volumes:
       

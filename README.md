@@ -256,6 +256,45 @@ The fake concentratord:
 - Publishes gateway stats periodically
 - Handles `GetGatewayId`, `SetGatewayConfiguration`, and `SendDownlinkFrame` commands
 
+## Docker
+
+A `docker-compose.yml` is provided for running rak-basicstation alongside ChirpStack Concentratord. Configuration is done via environment variables, which are substituted into the TOML config template at startup. All variables have sensible defaults set by the entrypoint script, so only the ones you need to change must be specified.
+
+### Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `BACKEND_ENABLED` | Backend to use: `concentratord` or `semtech_udp` | `concentratord` |
+| `BACKEND_GATEWAY_ID` | Gateway EUI-64 identifier (leave empty for auto-discovery) | _(empty)_ |
+| `CONCENTRATORD_EVENT_URL` | ZMQ IPC URL for Concentratord event socket | `ipc:///tmp/concentratord_event` |
+| `CONCENTRATORD_COMMAND_URL` | ZMQ IPC URL for Concentratord command socket | `ipc:///tmp/concentratord_command` |
+| `SEMTECH_UDP_BIND` | UDP bind address for the Semtech UDP backend | `0.0.0.0:1700` |
+| `LNS_SERVER` | LNS WebSocket server URI | `wss://localhost:8887` |
+| `LNS_RECONNECT_INTERVAL` | Reconnect interval after LNS disconnection | `5s` |
+| `CUPS_ENABLED` | Enable the CUPS update client | `false` |
+| `CUPS_SERVER` | CUPS server URL | _(empty)_ |
+| `LOG_LEVEL` | Logging level: `TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `OFF` | `info` |
+
+### TLS Certificates
+
+Mount your TLS certificates and keys to `/etc/rak-basicstation/certs/` (read-only):
+
+| File | Purpose |
+|---|---|
+| `tc.trust` | CA certificate for LNS server verification |
+| `tc.cert` | Client certificate for LNS mutual TLS |
+| `tc.key` | Client key or auth token for LNS |
+| `cups.trust` | CA certificate for CUPS server verification |
+| `cups.cert` | Client certificate for CUPS mutual TLS |
+| `cups.key` | Client key or auth token for CUPS |
+
+### Quick Start
+
+```sh
+# Set your LNS server and start
+LNS_SERVER=wss://lns.example.com:8887 docker compose up -d
+```
+
 ## Project Structure
 
 ```
