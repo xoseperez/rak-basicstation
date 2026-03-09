@@ -20,6 +20,13 @@ pub fn gateway_id_to_id6(gateway_id: &str) -> Result<String> {
         ));
     }
 
+    if !gateway_id.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(anyhow!(
+            "Invalid gateway ID: contains non-hex characters: {}",
+            gateway_id
+        ));
+    }
+
     let id = gateway_id.to_lowercase();
     Ok(format!(
         "{}:{}:{}:{}",
@@ -56,9 +63,13 @@ pub async fn discover(
         );
     }
 
+    let mut ws_config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+    ws_config.max_message_size = Some(1_048_576);  // 1 MB
+    ws_config.max_frame_size = Some(262_144);      // 256 KB
+
     let (mut ws_stream, _resp) = tokio_tungstenite::connect_async_tls_with_config(
         request,
-        None,
+        Some(ws_config),
         false,
         Some(tokio_tungstenite::Connector::Rustls(tls_connector)),
     )
@@ -114,5 +125,6 @@ mod tests {
     fn test_gateway_id_to_id6_invalid() {
         assert!(gateway_id_to_id6("0016C001").is_err());
         assert!(gateway_id_to_id6("").is_err());
+        assert!(gateway_id_to_id6("ZZZZZZZZZZZZZZZZ").is_err());
     }
 }

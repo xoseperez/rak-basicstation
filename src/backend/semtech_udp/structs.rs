@@ -609,7 +609,8 @@ impl PullResp {
                                 .as_ref()
                                 .ok_or_else(|| anyhow!("delay is missing"))?;
                             let delay: Duration = delay.try_into()?;
-                            timestamp += delay.as_micros() as u32;
+                            // Semtech UDP timestamps are 32-bit µs counters that wrap naturally.
+                            timestamp = timestamp.wrapping_add(delay.as_micros() as u32);
                             Some(timestamp)
                         }
                         _ => None,

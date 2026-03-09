@@ -1,9 +1,13 @@
 use std::fs;
+use std::io::Write;
 use std::path::Path;
 
 use anyhow::Result;
 use crc32fast::Hasher;
 use log::debug;
+
+#[cfg(unix)]
+use std::os::unix::fs::OpenOptionsExt;
 
 /// Compute CRC32 of the concatenation of the credential files.
 /// Files that are empty or don't exist contribute nothing.
@@ -116,7 +120,7 @@ pub fn save_uri(credentials_dir: &str, filename: &str, value: &str) -> Result<()
     }
     let path = dir.join(filename);
     debug!("Saving URI to {:?}", path);
-    fs::write(&path, value)?;
+    _write_restricted(&path, value.as_bytes())?;
     Ok(())
 }
 
@@ -138,7 +142,18 @@ pub fn save_credentials(
 
     let path = dir.join(format!("{}.cred", prefix));
     debug!("Saving credentials to {:?}", path);
-    fs::write(&path, data)?;
+    _write_restricted(&path, data)?;
 
+    Ok(())
+}
+
+/// Write data to a file with restricted permissions (0o600 on Unix).
+fn _write_restricted(path: &Path, data: &[u8]) -> Result<()> {
+    let mut opts = fs::OpenOptions::new();
+    opts.create(true).write(true).truncate(true);
+    #[cfg(unix)]
+    opts.mode(0o600);
+    let mut f = opts.open(path)?;
+    f.write_all(data)?;
     Ok(())
 }

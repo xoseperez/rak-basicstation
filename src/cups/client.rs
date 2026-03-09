@@ -162,7 +162,9 @@ pub fn parse_response(data: &[u8]) -> Result<CupsUpdateResponse> {
 }
 
 fn build_client(conf: &Configuration) -> Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder();
+    let mut builder = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(10))
+        .timeout(std::time::Duration::from_secs(30));
 
     if !conf.cups.ca_cert.is_empty() {
         let ca_data = std::fs::read(&conf.cups.ca_cert)?;

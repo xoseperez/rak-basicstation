@@ -1,6 +1,4 @@
 use std::sync::{Arc, Mutex};
-use std::thread::sleep;
-use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -96,37 +94,43 @@ impl Backend {
     }
 
     fn send_command(&self, cmd: gw::Command) -> Result<Vec<u8>> {
-        let res = || -> Result<Vec<u8>> {
-            let cmd_sock = self.cmd_sock.lock().unwrap();
-            cmd_sock.send(cmd.encode_to_vec(), 0)?;
+        let cmd_bytes = cmd.encode_to_vec();
 
-            // set poller so that we can timeout after 100ms
-            let mut items = [cmd_sock.as_poll_item(zmq::POLLIN)];
-            zmq::poll(&mut items, 100)?;
-            if !items[0].is_readable() {
-                return Err(anyhow!("Could not read response"));
-            }
+        for attempt in 0..3 {
+            let res = || -> Result<Vec<u8>> {
+                let cmd_sock = self.cmd_sock.lock().unwrap();
+                cmd_sock.send(&cmd_bytes, 0)?;
 
-            let resp_b = cmd_sock.recv_bytes(0)?;
-            Ok(resp_b)
-        }();
-
-        if res.is_err() {
-            loop {
-                if let Err(e) = self.reconnect_cmd_sock() {
-                    error!(
-                        "Re-connecting to Concentratord command API error, error: {}",
-                        e
-                    );
-                    sleep(Duration::from_secs(1));
-                    continue;
+                // set poller so that we can timeout after 100ms
+                let mut items = [cmd_sock.as_poll_item(zmq::POLLIN)];
+                zmq::poll(&mut items, 100)?;
+                if !items[0].is_readable() {
+                    return Err(anyhow!("Could not read response"));
                 }
 
-                break;
+                let resp_b = cmd_sock.recv_bytes(0)?;
+                Ok(resp_b)
+            }();
+
+            match res {
+                Ok(resp) => return Ok(resp),
+                Err(e) => {
+                    error!(
+                        "Concentratord command failed (attempt {}): {}",
+                        attempt + 1,
+                        e
+                    );
+                    if let Err(re) = self.reconnect_cmd_sock() {
+                        error!(
+                            "Re-connecting to Concentratord command API error: {}",
+                            re
+                        );
+                    }
+                }
             }
         }
 
-        res
+        Err(anyhow!("Concentratord command failed after 3 attempts"))
     }
 
     fn reconnect_cmd_sock(&self) -> Result<()> {
@@ -179,10 +183,16 @@ impl BackendTrait for Backend {
         let cmd = gw::Command {
             command: Some(gw::command::Command::SetGatewayConfiguration(pl)),
         };
-        let _ = self.send_command(cmd);
-        
-        info!("Concentratord reconfigured, event socket reconnected");
-        Ok(())
+        match self.send_command(cmd) {
+            Ok(_) => {
+                info!("Concentratord reconfigured successfully");
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to reconfigure concentratord: {}", e);
+                Err(e)
+            }
+        }
     }
 }
 

@@ -307,6 +307,13 @@ async fn handle_tx_ack(state: &Arc<State>, data: &[u8], remote: &SocketAddr) -> 
     let ack_status = pl.to_proto_tx_ack_status();
 
     let mut ack_items = downlink_cache.ack_items.clone();
+    if downlink_cache.index >= ack_items.len() {
+        return Err(anyhow!(
+            "TX_ACK: downlink cache index {} out of bounds (len: {})",
+            downlink_cache.index,
+            ack_items.len()
+        ));
+    }
     ack_items[downlink_cache.index].status = ack_status.into();
 
     if ack_status == gw::TxAckStatus::Ok || downlink_cache.index >= ack_items.len() - 1 {

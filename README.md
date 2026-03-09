@@ -198,7 +198,7 @@ rak-basicstation -c /etc/rak-basicstation/rak-basicstation.toml
   enabled = false
 ```
 
-Environment variables can be substituted in the config file using `$VAR_NAME` syntax.
+Environment variables can be substituted in the config file using `${VAR_NAME}` syntax.
 
 ### Authentication Modes
 
@@ -258,7 +258,7 @@ The fake concentratord:
 
 ## Docker
 
-A `docker-compose.yml` is provided for running rak-basicstation alongside ChirpStack Concentratord. Configuration is done via environment variables, which are substituted into the TOML config template at startup. All variables have sensible defaults set by the entrypoint script, so only the ones you need to change must be specified.
+A `docker-compose.yml` is provided for running rak-basicstation alongside ChirpStack Concentratord. Configuration is done via environment variables, which are substituted into the TOML config template at startup using `${VAR_NAME}` syntax. All variables have sensible defaults set by the entrypoint script, so only the ones you need to change must be specified.
 
 ### Environment Variables
 
@@ -366,6 +366,14 @@ UCI configuration is stored in `/etc/config/rak-basicstation`. On each service s
 3. Passes that TOML file to the binary via `-c`.
 
 The LuCI app (`luci-app-rak-basicstation`) provides a web UI under **RAK → BasicStation Forwarder** with tabs for Backend (concentratord slot, context caching), LNS (server URI, certificates), and CUPS settings.
+
+## Security Considerations
+
+- **Credential file permissions**: CUPS-persisted credentials (private keys, tokens) are written with mode `0600`. Ensure the configuration and credentials directories are only readable by the service user.
+- **Semtech UDP trust model**: The UDP backend accepts packets from any local sender. It is designed for co-located processes on the same host. Do not expose the UDP bind port to untrusted networks.
+- **OpenWrt UCI input**: UCI values are escaped before TOML interpolation, but operators should avoid setting configuration via untrusted input sources.
+- **TLS authentication**: Production deployments should use mutual TLS or token-based auth. Plain WebSocket (`ws://`) should only be used for development.
+- **LNS discovery**: The `lns.server` field is used as the initial endpoint for router discovery (`/router-info`). The actual WebSocket connection target (MUXS URI) is returned by the discovery response. If `lns.discovery_endpoint` is set, it overrides the discovery URL.
 
 ## License
 

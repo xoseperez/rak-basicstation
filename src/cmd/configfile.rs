@@ -86,14 +86,15 @@ pub fn run(config: &Configuration) {
 
   # LNS server URI.
   #
-  # This is the WebSocket URI of the LNS MUXS endpoint.
-  # Example: wss://lns.example.com:8887
+  # Used as the initial endpoint for router discovery (/router-info).
+  # The actual WebSocket connection target (MUXS URI) is returned by the
+  # discovery response. Example: wss://lns.example.com:8887
   server="{{ lns.server }}"
 
   # Discovery endpoint (optional).
   #
-  # If set, the gateway will first query this endpoint to discover the
-  # MUXS WebSocket URI. If discovery fails, falls back to 'server'.
+  # If set, overrides 'server' as the discovery URL. The gateway queries
+  # this endpoint for /router-info to obtain the MUXS WebSocket URI.
   # Example: https://lns.example.com:8887
   discovery_endpoint="{{ lns.discovery_endpoint }}"
 

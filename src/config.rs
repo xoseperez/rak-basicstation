@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fmt;
 use std::time::Duration;
 use std::{env, fs};
 
@@ -23,9 +24,18 @@ impl Configuration {
             content.push_str(&fs::read_to_string(file_name)?);
         }
 
-        // Replace environment variables in config.
-        for (k, v) in env::vars() {
-            content = content.replace(&format!("${}", k), &v);
+        // Replace ${VAR_NAME} placeholders with environment variable values.
+        loop {
+            let Some(start) = content.find("${") else {
+                break;
+            };
+            let end = content[start + 2..]
+                .find('}')
+                .map(|i| start + 2 + i)
+                .ok_or_else(|| anyhow!("Unclosed ${{}} in config at position {}", start))?;
+            let var_name = &content[start + 2..end];
+            let value = env::var(var_name).unwrap_or_default();
+            content = format!("{}{}{}", &content[..start], value, &content[end + 1..]);
         }
 
         let config: Configuration = toml::from_str(&content)?;
@@ -49,10 +59,27 @@ impl Default for Logging {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BackendType {
+    #[default]
+    Concentratord,
+    SemtechUdp,
+}
+
+impl fmt::Display for BackendType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BackendType::Concentratord => write!(f, "concentratord"),
+            BackendType::SemtechUdp => write!(f, "semtech_udp"),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Backend {
-    pub enabled: String,
+    pub enabled: BackendType,
     pub gateway_id: String,
     pub filters: Filters,
     pub concentratord: Concentratord,
@@ -62,7 +89,7 @@ pub struct Backend {
 impl Default for Backend {
     fn default() -> Self {
         Backend {
-            enabled: "concentratord".to_string(),
+            enabled: BackendType::default(),
             gateway_id: "".into(),
             filters: Filters::default(),
             concentratord: Concentratord::default(),

@@ -34,9 +34,13 @@ pub async fn run(
         );
     }
 
+    let mut ws_config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default();
+    ws_config.max_message_size = Some(1_048_576);  // 1 MB
+    ws_config.max_frame_size = Some(262_144);      // 256 KB
+
     let (ws_stream, _resp) = tokio_tungstenite::connect_async_tls_with_config(
         request,
-        None,
+        Some(ws_config),
         false,
         Some(tokio_tungstenite::Connector::Rustls(connector)),
     )

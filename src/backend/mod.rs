@@ -1,4 +1,3 @@
-use std::thread::sleep;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -6,8 +5,9 @@ use async_trait::async_trait;
 use chirpstack_api::gw;
 use log::info;
 use tokio::sync::OnceCell;
+use tokio::time::sleep;
 
-use crate::config::Configuration;
+use crate::config::{BackendType, Configuration};
 
 #[cfg(feature = "concentratord")]
 pub mod concentratord;
@@ -24,9 +24,9 @@ pub trait Backend {
 }
 
 pub async fn setup(conf: &Configuration) -> Result<()> {
-    match conf.backend.enabled.as_ref() {
+    match conf.backend.enabled {
         #[cfg(feature = "semtech_udp")]
-        "semtech_udp" => {
+        BackendType::SemtechUdp => {
             info!("Setting up Semtech UDP Packet Forwarder backend");
             let b = semtech_udp::Backend::setup(conf).await?;
             BACKEND
@@ -34,15 +34,16 @@ pub async fn setup(conf: &Configuration) -> Result<()> {
                 .map_err(|e| anyhow!("OnceCell error: {}", e))?;
         }
         #[cfg(feature = "concentratord")]
-        "concentratord" => {
+        BackendType::Concentratord => {
             info!("Setting up ChirpStack Concentratord backend");
             let b = concentratord::Backend::setup(conf).await?;
             BACKEND
                 .set(Box::new(b))
                 .map_err(|e| anyhow!("OnceCell error: {}", e))?;
         }
+        #[allow(unreachable_patterns)]
         _ => {
-            return Err(anyhow!("Unexpected backend: {}", conf.backend.enabled));
+            return Err(anyhow!("Backend '{}' not enabled in this build", conf.backend.enabled));
         }
     }
 
@@ -54,7 +55,7 @@ pub async fn setup(conf: &Configuration) -> Result<()> {
             break;
         }
 
-        sleep(Duration::from_secs(1));
+        sleep(Duration::from_secs(1)).await;
     }
 
     Ok(())

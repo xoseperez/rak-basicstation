@@ -3,6 +3,20 @@
 CONF_DIR=/var/etc/rak-basicstation
 CONF_FILE=$CONF_DIR/rak-basicstation.toml
 
+# Escape a value for safe TOML string interpolation.
+# Replaces \ with \\, " with \", and strips newlines/carriage returns.
+_toml_escape() {
+    printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' | tr -d '\n\r'
+}
+
+# Validate a metadata key: must match [a-zA-Z0-9_]+
+_valid_key() {
+    case "$1" in
+        *[!a-zA-Z0-9_]*|"") return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
 configure() {
     local config_name="$1"
     mkdir -p "$CONF_DIR"
@@ -55,7 +69,7 @@ _conf_logging() {
     [ "$log_to_syslog" = "1" ] && log_to_syslog=true || log_to_syslog=false
     cat > "$CONF_FILE" <<-EOF
 	[logging]
-	  level="$level"
+	  level="$(_toml_escape "$level")"
 	  log_to_syslog=$log_to_syslog
 	EOF
 }
@@ -91,9 +105,9 @@ _conf_backend() {
     cat >> "$CONF_FILE" <<-EOF
 
 	[backend]
-	  enabled="$enabled"
+	  enabled="$(_toml_escape "$enabled")"
 	EOF
-    [ -n "$gateway_id" ] && echo "  gateway_id=\"$gateway_id\"" >> "$CONF_FILE"
+    [ -n "$gateway_id" ] && echo "  gateway_id=\"$(_toml_escape "$gateway_id")\"" >> "$CONF_FILE"
 
     cat >> "$CONF_FILE" <<-EOF
 
@@ -103,12 +117,12 @@ _conf_backend() {
 	    forward_crc_missing=$forward_crc_missing
 
 	  [backend.concentratord]
-	    event_url="$event_url"
-	    command_url="$command_url"
+	    event_url="$(_toml_escape "$event_url")"
+	    command_url="$(_toml_escape "$command_url")"
 	    context_caching=$context_caching
 
 	  [backend.semtech_udp]
-	    bind="$bind"
+	    bind="$(_toml_escape "$bind")"
 	    time_fallback_enabled=$time_fallback
 	EOF
 }
@@ -124,11 +138,11 @@ _conf_lns() {
     cat >> "$CONF_FILE" <<-EOF
 
 	[lns]
-	  server="$server"
-	  reconnect_interval="$reconnect_interval"
+	  server="$(_toml_escape "$server")"
+	  reconnect_interval="$(_toml_escape "$reconnect_interval")"
 	EOF
     [ -n "$discovery_endpoint" ] && \
-        echo "  discovery_endpoint=\"$discovery_endpoint\"" >> "$CONF_FILE"
+        echo "  discovery_endpoint=\"$(_toml_escape "$discovery_endpoint")\"" >> "$CONF_FILE"
     [ -f "$CONF_DIR/lns_ca.crt"     ] && echo "  ca_cert=\"$CONF_DIR/lns_ca.crt\""      >> "$CONF_FILE"
     [ -f "$CONF_DIR/lns_client.crt" ] && echo "  tls_cert=\"$CONF_DIR/lns_client.crt\""  >> "$CONF_FILE"
     [ -f "$CONF_DIR/lns_client.key" ] && echo "  tls_key=\"$CONF_DIR/lns_client.key\""   >> "$CONF_FILE"
@@ -148,10 +162,10 @@ _conf_cups() {
 
 	[cups]
 	  enabled=$enabled
-	  server="$server"
-	  oksync_interval="$oksync_interval"
-	  resync_interval="$resync_interval"
-	  credentials_dir="$credentials_dir"
+	  server="$(_toml_escape "$server")"
+	  oksync_interval="$(_toml_escape "$oksync_interval")"
+	  resync_interval="$(_toml_escape "$resync_interval")"
+	  credentials_dir="$(_toml_escape "$credentials_dir")"
 	  sig_keys=[
 	EOF
     config_list_foreach cups sig_keys _conf_cups_sig_key
@@ -162,7 +176,7 @@ _conf_cups() {
     [ -f "$CONF_DIR/cups_client.key" ] && echo "  tls_key=\"$CONF_DIR/cups_client.key\""   >> "$CONF_FILE"
 }
 
-_conf_cups_sig_key() { echo "    \"$1\"," >> "$CONF_FILE"; }
+_conf_cups_sig_key() { echo "    \"$(_toml_escape "$1")\"," >> "$CONF_FILE"; }
 
 # ── [metadata] ───────────────────────────────────────────────────────────────
 _conf_metadata() {
@@ -172,7 +186,7 @@ _conf_metadata() {
     cat >> "$CONF_FILE" <<-EOF
 
 	[metadata]
-	  split_delimiter="$split_delimiter"
+	  split_delimiter="$(_toml_escape "$split_delimiter")"
 
 	  [metadata.static]
 	EOF
@@ -186,16 +200,18 @@ _conf_metadata_static() {
     local cfg="$1" key value
     config_get key   "$cfg" key   ""
     config_get value "$cfg" value ""
-    [ -n "$key" ] && echo "    $key=\"$value\"" >> "$CONF_FILE"
+    _valid_key "$key" || return 0
+    echo "    $key=\"$(_toml_escape "$value")\"" >> "$CONF_FILE"
 }
 
 _conf_metadata_command() {
     local cfg="$1" name
     config_get name "$cfg" name ""
     [ -z "$name" ] && return 0
+    _valid_key "$name" || return 0
     printf '    %s=[' "$name" >> "$CONF_FILE"
     config_list_foreach "$cfg" args _conf_metadata_arg
     echo "]" >> "$CONF_FILE"
 }
 
-_conf_metadata_arg() { printf '"%s",' "$1" >> "$CONF_FILE"; }
+_conf_metadata_arg() { printf '"%s",' "$(_toml_escape "$1")" >> "$CONF_FILE"; }
