@@ -209,52 +209,12 @@ Environment variables can be substituted in the config file using `${VAR_NAME}` 
 | Mutual TLS | CA cert | Client cert | Client key | Both sides verified |
 | Token Auth | CA cert | - | Auth token file | TLS + Authorization header |
 
-## Testing with Fake Concentratord
+## Testing
 
-A `fake_concentratord` example binary is included for testing without real gateway hardware. It mimics the Concentratord ZMQ API: responds to commands and publishes synthetic uplink frames.
+Example utilities for testing without real hardware are in `examples/`. See [`examples/README.md`](examples/README.md) for details:
 
-**1.** Edit `examples/fake_concentratord.toml` with your gateway ID and desired settings:
-
-```toml
-gateway_id = "0016c001f156d7e5"
-stats_interval = 30
-
-[api]
-  event_bind = "ipc:///tmp/test_concentratord_event"
-  command_bind = "ipc:///tmp/test_concentratord_command"
-
-[uplink]
-  frequency = 868100000
-  spreading_factor = 7
-  bandwidth = 125000
-  interval = 10
-```
-
-**2.** Update `rak-basicstation.toml` to match the ZMQ URLs:
-
-```toml
-[backend.concentratord]
-  event_url = "ipc:///tmp/test_concentratord_event"
-  command_url = "ipc:///tmp/test_concentratord_command"
-```
-
-**3.** Start the fake concentratord (with optional `-c` for a custom config path):
-
-```sh
-cargo run --example fake_concentratord
-cargo run --example fake_concentratord -- -c /path/to/config.toml
-```
-
-**4.** In another terminal, start the service:
-
-```sh
-cargo run -- -c /path/to/rak-basicstation.toml
-```
-
-The fake concentratord:
-- Publishes test unconfirmed data uplinks at the configured interval
-- Publishes gateway stats periodically
-- Handles `GetGatewayId`, `SetGatewayConfiguration`, and `SendDownlinkFrame` commands
+- **`fake_concentratord`** — simulates the Concentratord ZMQ API (publishes uplinks, handles commands)
+- **`load_test`** — end-to-end load test (fake backend + fake LNS) with throughput and latency reporting
 
 ## Docker
 
@@ -326,6 +286,9 @@ src/
 └── cmd/
     ├── mod.rs
     └── configfile.rs        # Config template generator
+examples/
+├── fake_concentratord.rs   # Fake Concentratord for functional testing
+└── load_test.rs            # End-to-end load test (fake backend + fake LNS)
 openwrt/
 ├── rak-basicstation/           # OpenWrt package (binary + init + UCI config)
 │   ├── Makefile
