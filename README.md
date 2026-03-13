@@ -338,6 +338,47 @@ The LuCI app (`luci-app-rak-basicstation`) provides a web UI under **RAK → Bas
 - **TLS authentication**: Production deployments should use mutual TLS or token-based auth. Plain WebSocket (`ws://`) should only be used for development.
 - **LNS discovery**: The `lns.server` field is used as the initial endpoint for router discovery (`/router-info`). The actual WebSocket connection target (MUXS URI) is returned by the discovery response. If `lns.discovery_endpoint` is set, it overrides the discovery URL.
 
+## Topologies
+
+### 1. ChirpStack BasicStation Gateway
+
+The standard deployment for ChirpStack-based gateways. Concentratord handles the SX130x
+radio hardware and exposes uplinks/commands over ZMQ. rak-basicstation subscribes to
+uplinks, converts them to BasicStation JSON, and forwards them to the LNS over WebSocket.
+Downlinks travel the reverse path.
+
+![ChirpStack BasicStation Gateway](assets/topology-1-basicstation.svg)
+
+### 2. Legacy-to-BasicStation Bridge
+
+Converts a legacy Semtech UDP packet forwarder into a BasicStation-compatible gateway.
+rak-basicstation acts as a UDP server on port 1700, receiving PUSH_DATA/PULL_DATA from
+the existing packet forwarder and translating them to the BasicStation WebSocket protocol.
+This allows migrating to a BasicStation-based LNS without replacing the gateway firmware.
+
+![Legacy-to-BasicStation Bridge](assets/topology-2-legacy-bridge.svg)
+
+### 3. Multiplexer (Multi-LNS Fan-Out)
+
+Uses [ChirpStack Gateway Mesh Multiplexer](https://github.com/chirpstack/chirpstack-multiplexer)
+to fan out uplinks from a single packet forwarder to multiple destinations. Each destination
+can be a different LNS using the Semtech UDP protocol, while rak-basicstation serves as one
+of the targets to reach a BasicStation-only LNS. This is useful for forwarding traffic to
+multiple network servers simultaneously (e.g., a private ChirpStack instance and TTN).
+
+![Multiplexer - Multi-LNS Fan-Out](assets/topology-3-multiplexer.svg)
+
+### 4. Gateway Mesh
+
+In a [ChirpStack Gateway Mesh](https://github.com/chirpstack/chirpstack-gateway-mesh)
+deployment, remote gateways relay uplinks to a border gateway via LoRa concentrator-to-concentrator
+communication. The border gateway runs Gateway Mesh between Concentratord and
+rak-basicstation, which forwards the aggregated traffic to the LNS. Requires
+`context_caching = true` so that the full `rx_info.context` blob (carrying mesh relay
+metadata) is preserved through the uplink/downlink round-trip.
+
+![Gateway Mesh](assets/topology-4-gateway-mesh.svg)
+
 ## License
 
 MIT
