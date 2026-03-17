@@ -342,6 +342,171 @@ fn build_class_c_downlink(
     })
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lns::router_config::RouterConfigState;
+
+    // EU868-like DR table: DR0=SF12/125kHz … DR5=SF7/125kHz, DR6=SF7/250kHz.
+    fn eu868_rc() -> RouterConfigState {
+        RouterConfigState {
+            // (SF, BW_kHz) — dr_to_sf_bw() multiplies BW by 1000.
+            drs: vec![
+                (12, 125),
+                (11, 125),
+                (10, 125),
+                (9, 125),
+                (8, 125),
+                (7, 125),
+                (7, 250),
+            ],
+            net_ids: vec![],
+            join_eui_ranges: vec![],
+            freq_range: (863_000_000, 870_000_000),
+            region: "EU868".to_string(),
+        }
+    }
+
+    fn make_class_a_msg(xtime: i64) -> DownlinkMessage {
+        serde_json::from_str(&format!(
+            r#"{{
+                "msgtype": "dnmsg",
+                "DevEui": "0101010101010101",
+                "dC": 0,
+                "diid": 1,
+                "pdu": "DEADBEEF",
+                "RxDelay": 1,
+                "RX1DR": 0,
+                "RX1Freq": 868100000,
+                "RX2DR": 0,
+                "RX2Freq": 869525000,
+                "xtime": {}
+            }}"#,
+            xtime
+        ))
+        .unwrap()
+    }
+
+    fn make_class_c_msg_with_xtime(xtime: i64) -> DownlinkMessage {
+        serde_json::from_str(&format!(
+            r#"{{
+                "msgtype": "dnmsg",
+                "DevEui": "0101010101010101",
+                "dC": 2,
+                "diid": 2,
+                "pdu": "DEADBEEF",
+                "RxDelay": 1,
+                "RX1DR": 0,
+                "RX1Freq": 868100000,
+                "RX2DR": 0,
+                "RX2Freq": 869525000,
+                "xtime": {}
+            }}"#,
+            xtime
+        ))
+        .unwrap()
+    }
+
+    // -----------------------------------------------------------------------
+    // Class A
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_class_a_uses_cached_context() {
+        let _g = crate::lns::CACHE_TEST_LOCK.lock().unwrap();
+        crate::lns::clear_context_cache();
+        crate::lns::CONTEXT_CACHING_ENABLED
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let session: u8 = 0x01;
+        let count_us: u32 = 0x0000_1234;
+        let xtime = ((session as i64) << 48) | count_us as i64;
+        let full_ctx = vec![0x00, 0x00, 0x12, 0x34, 0xAA, 0xBB, 0xCC, 0xDD];
+        super::super::cache_context(xtime, full_ctx.clone());
+
+        let msg = make_class_a_msg(xtime);
+        let rc = eu868_rc();
+        let frame = build_class_a_downlink(&msg, &rc, &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+
+        for item in &frame.items {
+            let ctx = item.tx_info.as_ref().unwrap().context.clone();
+            assert_eq!(ctx, full_ctx, "expected full cached context in tx_info");
+        }
+    }
+
+    #[test]
+    fn test_class_a_falls_back_to_count_us_on_cache_miss() {
+        let _g = crate::lns::CACHE_TEST_LOCK.lock().unwrap();
+        crate::lns::clear_context_cache();
+        crate::lns::CONTEXT_CACHING_ENABLED
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let session: u8 = 0x02;
+        let count_us: u32 = 0x0000_5678;
+        let xtime = ((session as i64) << 48) | count_us as i64;
+        // No cache entry for this xtime.
+
+        let msg = make_class_a_msg(xtime);
+        let rc = eu868_rc();
+        let frame = build_class_a_downlink(&msg, &rc, &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+
+        let expected_fallback = count_us.to_be_bytes().to_vec();
+        for item in &frame.items {
+            let ctx = item.tx_info.as_ref().unwrap().context.clone();
+            assert_eq!(ctx, expected_fallback, "expected 4-byte count_us fallback");
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Class C (with xtime)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_class_c_uses_cached_context() {
+        let _g = crate::lns::CACHE_TEST_LOCK.lock().unwrap();
+        crate::lns::clear_context_cache();
+        crate::lns::CONTEXT_CACHING_ENABLED
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let session: u8 = 0x03;
+        let count_us: u32 = 0x0000_ABCD;
+        let xtime = ((session as i64) << 48) | count_us as i64;
+        let full_ctx = vec![0x00, 0x00, 0xAB, 0xCD, 0x11, 0x22, 0x33, 0x44];
+        super::super::cache_context(xtime, full_ctx.clone());
+
+        let msg = make_class_c_msg_with_xtime(xtime);
+        let rc = eu868_rc();
+        let frame = build_class_c_downlink(&msg, &rc, &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+
+        for item in &frame.items {
+            let ctx = item.tx_info.as_ref().unwrap().context.clone();
+            assert_eq!(ctx, full_ctx, "expected full cached context in tx_info");
+        }
+    }
+
+    #[test]
+    fn test_class_c_falls_back_to_count_us_on_cache_miss() {
+        let _g = crate::lns::CACHE_TEST_LOCK.lock().unwrap();
+        crate::lns::clear_context_cache();
+        crate::lns::CONTEXT_CACHING_ENABLED
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+
+        let session: u8 = 0x04;
+        let count_us: u32 = 0x0000_EF01;
+        let xtime = ((session as i64) << 48) | count_us as i64;
+
+        let msg = make_class_c_msg_with_xtime(xtime);
+        let rc = eu868_rc();
+        let frame = build_class_c_downlink(&msg, &rc, &[0xDE, 0xAD, 0xBE, 0xEF]).unwrap();
+
+        let expected_fallback = count_us.to_be_bytes().to_vec();
+        for item in &frame.items {
+            let ctx = item.tx_info.as_ref().unwrap().context.clone();
+            assert_eq!(ctx, expected_fallback, "expected 4-byte count_us fallback");
+        }
+    }
+}
+
 fn build_downlink_item(
     phy_payload: &[u8],
     frequency: u32,

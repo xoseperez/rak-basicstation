@@ -44,6 +44,16 @@ static CUPS_TC_AUTH_HEADERS: LazyLock<RwLock<Vec<(String, String)>>> =
 /// Whether context caching is enabled (concentratord backend only).
 static CONTEXT_CACHING_ENABLED: AtomicBool = AtomicBool::new(false);
 
+/// Serializes tests that mutate the shared cache statics.
+#[cfg(test)]
+pub(crate) static CACHE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Clears the context cache; used by tests to establish a known-empty state.
+#[cfg(test)]
+pub(crate) fn clear_context_cache() {
+    CONTEXT_CACHE.lock().unwrap().clear();
+}
+
 /// TTL for cached rx_info contexts.
 const CONTEXT_CACHE_TTL: Duration = Duration::from_secs(60);
 
@@ -320,4 +330,107 @@ fn parse_auth_token(lns: &Lns) -> Result<Vec<(String, String)>> {
         debug!("Using CUPS-provided TC auth headers");
     }
     Ok(headers)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // -----------------------------------------------------------------------
+    // Helpers
+    // -----------------------------------------------------------------------
+
+    /// Reset the shared statics to a defined state before each test.
+    fn setup(caching: bool) -> std::sync::MutexGuard<'static, ()> {
+        let guard = CACHE_TEST_LOCK.lock().unwrap();
+        clear_context_cache();
+        CONTEXT_CACHING_ENABLED.store(caching, Ordering::Relaxed);
+        guard
+    }
+
+    // -----------------------------------------------------------------------
+    // Cache primitive tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_cache_hit() {
+        let _g = setup(true);
+        let xtime: i64 = 0x0001_AABB_CCDD_EE01;
+        let ctx = vec![0x01, 0x02, 0x03, 0x04, 0xAA, 0xBB];
+        cache_context(xtime, ctx.clone());
+        assert_eq!(get_cached_context(xtime), Some(ctx));
+    }
+
+    #[test]
+    fn test_cache_miss() {
+        let _g = setup(true);
+        assert_eq!(get_cached_context(0x0001_DEAD_BEEF_0000), None);
+    }
+
+    #[test]
+    fn test_caching_disabled_returns_none() {
+        let _g = setup(false);
+        let xtime: i64 = 0x0001_0000_0000_0042;
+        // Insert directly so the entry exists in the map.
+        CONTEXT_CACHE
+            .lock()
+            .unwrap()
+            .insert(xtime, (vec![0xAA, 0xBB, 0xCC, 0xDD], Instant::now()));
+        // The disabled flag must suppress the lookup.
+        assert_eq!(get_cached_context(xtime), None);
+    }
+
+    #[test]
+    fn test_sweep_removes_expired_entry() {
+        let _g = setup(true);
+        let xtime: i64 = 0x0001_0000_DEAD_0001;
+        // Insert with a timestamp already past the TTL.
+        CONTEXT_CACHE.lock().unwrap().insert(
+            xtime,
+            (
+                vec![1, 2, 3, 4],
+                Instant::now() - CONTEXT_CACHE_TTL - Duration::from_secs(1),
+            ),
+        );
+        sweep_context_cache();
+        assert_eq!(get_cached_context(xtime), None);
+    }
+
+    #[test]
+    fn test_sweep_retains_fresh_entry() {
+        let _g = setup(true);
+        let xtime: i64 = 0x0001_0000_CAFE_0001;
+        let ctx = vec![5, 6, 7, 8];
+        cache_context(xtime, ctx.clone());
+        sweep_context_cache();
+        assert_eq!(get_cached_context(xtime), Some(ctx));
+    }
+
+    // -----------------------------------------------------------------------
+    // xtime encoding round-trip
+    // -----------------------------------------------------------------------
+
+    /// The xtime built in send_uplink() must round-trip through the mask used
+    /// in build_class_a_downlink() to recover count_us.
+    #[test]
+    fn test_xtime_encoding_roundtrip() {
+        let session: u8 = 0xAB;
+        let count_us: u32 = 0x00CA_FE12;
+        let xtime = ((session as i64) << 48) | (count_us as i64 & 0x0000_FFFF_FFFF_FFFF);
+        let recovered = (xtime & 0x0000_FFFF_FFFF_FFFF) as u32;
+        assert_eq!(recovered, count_us);
+    }
+
+    /// Session counter in bits [55:48] must not bleed into count_us bits [47:0].
+    #[test]
+    fn test_xtime_session_bits_are_isolated() {
+        for session in [0u8, 1, 127, 255] {
+            let count_us: u32 = 0xFFFF_FFFF;
+            let xtime = ((session as i64) << 48) | (count_us as i64 & 0x0000_FFFF_FFFF_FFFF);
+            let recovered_count = (xtime & 0x0000_FFFF_FFFF_FFFF) as u32;
+            let recovered_session = ((xtime >> 48) & 0xFF) as u8;
+            assert_eq!(recovered_count, count_us);
+            assert_eq!(recovered_session, session);
+        }
+    }
 }
