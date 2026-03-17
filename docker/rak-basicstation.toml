@@ -20,6 +20,7 @@
   [backend.concentratord]
     event_url="${CONCENTRATORD_EVENT_URL}"
     command_url="${CONCENTRATORD_COMMAND_URL}"
+    context_caching=${CONCENTRATORD_CONTEXT_CACHING}
 
   [backend.semtech_udp]
     bind="${SEMTECH_UDP_BIND}"

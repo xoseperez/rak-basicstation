@@ -24,6 +24,12 @@ services:
       #- CONCENTRATORD_EVENT_URL=ipc:///tmp/concentratord_event
       #- CONCENTRATORD_COMMAND_URL=ipc:///tmp/concentratord_command
 
+      # Enable context caching (concentratord backend only).
+      # When enabled the full rx_info.context blob is cached on uplink and
+      # restored on downlink, so concentratord receives the original opaque
+      # context rather than a 4-byte count_us fallback.
+      #- CONCENTRATORD_CONTEXT_CACHING=false
+
       # Semtech UDP backend bind address
       #- SEMTECH_UDP_BIND=0.0.0.0:1700
 
