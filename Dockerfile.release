@@ -1,0 +1,38 @@
+# Multi-arch runtime image.
+#
+# Expects pre-built static musl binaries staged under dist/:
+#   dist/rak-basicstation-amd64   (x86_64-unknown-linux-musl)
+#   dist/rak-basicstation-arm64   (aarch64-unknown-linux-musl)
+#   dist/rak-basicstation-armv7   (armv7-unknown-linux-musleabihf)
+#
+# Built with:
+#   docker buildx build -f Dockerfile.release \
+#     --platform linux/amd64,linux/arm64,linux/arm/v7 \
+#     --push -t yourname/rak-basicstation:latest .
+#
+# Docker buildx sets TARGETARCH and TARGETVARIANT automatically:
+#   linux/amd64  → amd64  + ""  → dist/rak-basicstation-amd64
+#   linux/arm64  → arm64  + ""  → dist/rak-basicstation-arm64
+#   linux/arm/v7 → arm    + v7  → dist/rak-basicstation-armv7
+
+FROM debian:bookworm-slim
+
+ARG TARGETARCH
+ARG TARGETVARIANT
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /etc/rak-basicstation /var/lib/rak-basicstation/credentials
+
+COPY dist/rak-basicstation-${TARGETARCH}${TARGETVARIANT} /usr/bin/rak-basicstation
+COPY docker/rak-basicstation.toml /etc/rak-basicstation/rak-basicstation.toml
+COPY docker/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
+
+RUN chmod +x /usr/bin/rak-basicstation /usr/bin/docker-entrypoint.sh
+
+EXPOSE 1700/udp
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+CMD ["rak-basicstation", "-c", "/etc/rak-basicstation/rak-basicstation.toml"]

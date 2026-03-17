@@ -4,7 +4,9 @@ services:
 
     container_name: rak-basicstation
     image: rakwireless/basicstation
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
 
     depends_on:
       chirpstack-concentratord:

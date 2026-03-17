@@ -228,6 +228,7 @@ A `docker-compose.yml` is provided for running rak-basicstation alongside ChirpS
 | `BACKEND_GATEWAY_ID` | Gateway EUI-64 identifier (leave empty for auto-discovery) | _(empty)_ |
 | `CONCENTRATORD_EVENT_URL` | ZMQ IPC URL for Concentratord event socket | `ipc:///tmp/concentratord_event` |
 | `CONCENTRATORD_COMMAND_URL` | ZMQ IPC URL for Concentratord command socket | `ipc:///tmp/concentratord_command` |
+| `CONCENTRATORD_CONTEXT_CACHING` | Cache full `rx_info.context` on uplink and restore it on the matching downlink (concentratord backend only; required for Gateway Mesh) | `false` |
 | `SEMTECH_UDP_BIND` | UDP bind address for the Semtech UDP backend | `0.0.0.0:1700` |
 | `LNS_SERVER` | LNS WebSocket server URI | `wss://localhost:8887` |
 | `LNS_RECONNECT_INTERVAL` | Reconnect interval after LNS disconnection | `5s` |
@@ -253,6 +254,61 @@ Mount your TLS certificates and keys to `/etc/rak-basicstation/certs/` (read-onl
 ```sh
 # Set your LNS server and start
 LNS_SERVER=wss://lns.example.com:8887 docker compose up -d
+```
+
+### Publishing Multi-arch Images to Docker Hub
+
+The provided GitHub Actions workflow (`.github/workflows/release.yml`) builds and pushes a
+multi-arch manifest covering `linux/amd64`, `linux/arm64`, and `linux/arm/v7` on every
+`v*` tag push.
+
+**How it works:**
+
+1. The three target binaries are cross-compiled with `cross` (native cross-compilation — no QEMU):
+   - `x86_64-unknown-linux-musl` → `linux/amd64`
+   - `aarch64-unknown-linux-musl` → `linux/arm64`
+   - `armv7-unknown-linux-musleabihf` → `linux/arm/v7`
+2. Binaries are staged under `dist/` with names matching Docker's `TARGETARCH`+`TARGETVARIANT` pattern (`dist/rak-basicstation-amd64`, `dist/rak-basicstation-arm64`, `dist/rak-basicstation-armv7`).
+3. `docker buildx` assembles the multi-arch manifest using `Dockerfile.release`, which simply copies the right binary — no compilation happens inside Docker.
+
+Because the musl binaries are fully statically linked (ZMQ is bundled by `zmq-sys`), the
+runtime image only requires `ca-certificates` and has no `libzmq` dependency.
+
+**Required repository secrets:**
+
+| Secret | Description |
+|---|---|
+| `DOCKERHUB_USERNAME` | Docker Hub account username |
+| `DOCKERHUB_TOKEN` | Docker Hub [access token](https://docs.docker.com/security/for-developers/access-tokens/) (not your password) |
+
+**To trigger a release:**
+
+```sh
+git tag v1.2.3
+git push origin v1.2.3
+```
+
+The workflow produces tags `1.2.3`, `1.2`, and `latest` on Docker Hub.
+
+**To build and push manually:**
+
+```sh
+# Install the pinned cross version (once)
+make dev-dependencies
+
+# Cross-compile and stage the binaries
+make build-x86_64-unknown-linux-musl
+make build-aarch64-unknown-linux-musl
+make build-armv7-unknown-linux-musleabihf
+mkdir -p dist
+cp target/x86_64-unknown-linux-musl/release/rak-basicstation  dist/rak-basicstation-amd64
+cp target/aarch64-unknown-linux-musl/release/rak-basicstation  dist/rak-basicstation-arm64
+cp target/armv7-unknown-linux-musleabihf/release/rak-basicstation dist/rak-basicstation-armv7
+
+# Build and push the multi-arch image
+docker buildx build -f Dockerfile.release \
+  --platform linux/amd64,linux/arm64,linux/arm/v7 \
+  --push -t yourname/rak-basicstation:latest .
 ```
 
 ## Project Structure
