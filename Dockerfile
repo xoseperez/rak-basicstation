@@ -25,8 +25,8 @@ RUN apt-get update && apt-get install -y \
 RUN mkdir -p /etc/rak-basicstation /var/lib/rak-basicstation/credentials
 
 COPY --from=builder /build/target/release/rak-basicstation /usr/bin/rak-basicstation
-COPY docker/rak-basicstation.toml /etc/rak-basicstation/rak-basicstation.toml
-COPY docker/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
+COPY packaging/docker/rak-basicstation.toml /etc/rak-basicstation/rak-basicstation.toml
+COPY packaging/docker/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
 
 EXPOSE 1700/udp
 

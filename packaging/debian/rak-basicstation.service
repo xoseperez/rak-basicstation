@@ -1,0 +1,13 @@
+[Unit]
+Description=RAK BasicStation LoRaWAN Forwarder
+Documentation=https://github.com/xoseperez/rak-basicstation
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/rak-basicstation -c /etc/rak-basicstation/rak-basicstation.toml
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target

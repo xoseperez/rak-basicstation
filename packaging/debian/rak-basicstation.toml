@@ -1,0 +1,47 @@
+# rak-basicstation configuration.
+# Full reference: run `rak-basicstation configfile`
+
+[logging]
+  level="info"
+  log_to_syslog=true
+
+
+[backend]
+  enabled="concentratord"
+  gateway_id=""
+
+  [backend.filters]
+    forward_crc_ok=true
+    forward_crc_invalid=false
+    forward_crc_missing=false
+
+  [backend.concentratord]
+    event_url="ipc:///tmp/concentratord_event"
+    command_url="ipc:///tmp/concentratord_command"
+    # Enable when using chirpstack-gateway-mesh as backend.
+    context_caching=false
+
+  [backend.semtech_udp]
+    bind="0.0.0.0:1700"
+    time_fallback_enabled=false
+
+
+[lns]
+  server=""
+  discovery_endpoint=""
+  reconnect_interval="5s"
+  ca_cert=""
+  tls_cert=""
+  tls_key=""
+
+
+[cups]
+  enabled=false
+  server=""
+  oksync_interval="24h"
+  resync_interval="1m"
+  ca_cert=""
+  tls_cert=""
+  tls_key=""
+  credentials_dir="/var/lib/rak-basicstation/credentials"
+  sig_keys=[]
