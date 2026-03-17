@@ -119,12 +119,6 @@ jobs:
           path: dist
           merge-multiple: false
 
-      - name: Stage binaries
-        run: |
-          mv dist/rak-basicstation-amd64/rak-basicstation dist/rak-basicstation-amd64
-          mv dist/rak-basicstation-arm64/rak-basicstation dist/rak-basicstation-arm64
-          mv dist/rak-basicstation-armv7/rak-basicstation  dist/rak-basicstation-armv7
-          chmod +x dist/rak-basicstation-*
 
       - name: Docker metadata
         id: meta

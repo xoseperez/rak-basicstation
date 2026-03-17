@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y \
 
 RUN mkdir -p /etc/rak-basicstation /var/lib/rak-basicstation/credentials
 
-COPY dist/rak-basicstation-${TARGETARCH}${TARGETVARIANT} /usr/bin/rak-basicstation
+COPY dist/rak-basicstation-${TARGETARCH}${TARGETVARIANT}/rak-basicstation /usr/bin/rak-basicstation
 COPY packaging/docker/rak-basicstation.toml /etc/rak-basicstation/rak-basicstation.toml
 COPY packaging/docker/docker-entrypoint.sh /usr/bin/docker-entrypoint.sh
 
