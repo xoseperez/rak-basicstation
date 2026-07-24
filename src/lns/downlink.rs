@@ -129,6 +129,27 @@ pub async fn handle_dnsched(
     Ok(())
 }
 
+/// Resolve the concentrator context to attach to a downlink referencing `xtime`.
+///
+/// Prefers the full `rx_info.context` blob cached when the uplink was forwarded;
+/// falls back to the legacy 4-byte count_us encoding when caching is disabled or
+/// the entry is not there (expired, or the uplink was never seen on this session).
+fn resolve_context(xtime: i64, count_us: u32, class: &str) -> Vec<u8> {
+    match super::get_cached_context(xtime) {
+        Some(context) => {
+            debug!(
+                "Class {} downlink, context cache hit, xtime: {}, context: {}, len: {}",
+                class,
+                xtime,
+                hex::encode(&context),
+                context.len()
+            );
+            context
+        }
+        None => count_us.to_be_bytes().to_vec(),
+    }
+}
+
 fn build_class_a_downlink(
     msg: &DownlinkMessage,
     rc: &RouterConfigState,
@@ -142,13 +163,13 @@ fn build_class_a_downlink(
         .xtime
         .ok_or_else(|| anyhow!("Class A dnmsg missing xtime"))?;
     let count_us = (xtime & 0x0000_FFFF_FFFF_FFFF) as u32;
-    let context = super::get_cached_context(xtime)
-        .unwrap_or_else(|| count_us.to_be_bytes().to_vec());
 
     debug!(
         "Class A downlink, xtime: {}, count_us: {}, rx_delay: {}, rctx: {:?}",
         xtime, count_us, rx_delay, msg.rctx
     );
+
+    let context = resolve_context(xtime, count_us, "A");
 
     let mut items = Vec::new();
 
@@ -260,9 +281,14 @@ fn build_class_c_downlink(
     // If xtime is present, this is a Class C response to an uplink (schedule like Class A).
     if let Some(xtime) = msg.xtime {
         let count_us = (xtime & 0x0000_FFFF_FFFF_FFFF) as u32;
-        let context = super::get_cached_context(xtime)
-            .unwrap_or_else(|| count_us.to_be_bytes().to_vec());
         let rx_delay = msg.rx_delay.unwrap_or(1) as u32;
+
+        debug!(
+            "Class C downlink, xtime: {}, count_us: {}, rx_delay: {}, rctx: {:?}",
+            xtime, count_us, rx_delay, msg.rctx
+        );
+
+        let context = resolve_context(xtime, count_us, "C");
 
         // RX1 window.
         if let (Some(rx1_dr), Some(rx1_freq)) = (msg.rx1_dr, msg.rx1_freq)

@@ -70,11 +70,11 @@ pub fn set_cups_tc_auth_headers(headers: Vec<(String, String)>) {
     *CUPS_TC_AUTH_HEADERS.write().unwrap() = headers;
 }
 
-fn cache_context(xtime: i64, context: Vec<u8>) {
-    CONTEXT_CACHE
-        .lock()
-        .unwrap()
-        .insert(xtime, (context, Instant::now()));
+/// Stores a context blob and returns the resulting number of cached entries.
+fn cache_context(xtime: i64, context: Vec<u8>) -> usize {
+    let mut cache = CONTEXT_CACHE.lock().unwrap();
+    cache.insert(xtime, (context, Instant::now()));
+    cache.len()
 }
 
 pub fn get_cached_context(xtime: i64) -> Option<Vec<u8>> {
@@ -90,10 +90,18 @@ pub fn get_cached_context(xtime: i64) -> Option<Vec<u8>> {
 
 fn sweep_context_cache() {
     let now = Instant::now();
-    CONTEXT_CACHE
-        .lock()
-        .unwrap()
-        .retain(|_, (_, inserted)| now.duration_since(*inserted) < CONTEXT_CACHE_TTL);
+    let mut cache = CONTEXT_CACHE.lock().unwrap();
+    let before = cache.len();
+    cache.retain(|_, (_, inserted)| now.duration_since(*inserted) < CONTEXT_CACHE_TTL);
+    let expired = before - cache.len();
+
+    if expired > 0 {
+        debug!(
+            "Swept context cache, expired: {}, entries: {}",
+            expired,
+            cache.len()
+        );
+    }
 }
 
 pub async fn setup(conf: &Configuration) -> Result<()> {
@@ -265,7 +273,16 @@ pub async fn send_uplink(frame: &gw::UplinkFrame) -> Result<()> {
             rx_info.context[3],
         ]) as i64;
         let xtime = ((session as i64) << 48) | (count_us & 0x0000_FFFF_FFFF_FFFF);
-        cache_context(xtime, rx_info.context.clone());
+        let entries = cache_context(xtime, rx_info.context.clone());
+
+        debug!(
+            "Cached uplink context, xtime: {}, count_us: {}, context: {}, len: {}, entries: {}",
+            xtime,
+            count_us,
+            hex::encode(&rx_info.context),
+            rx_info.context.len(),
+            entries
+        );
     }
 
     let msg = uplink::frame_to_json(frame, &rc, session, ref_time)?;
