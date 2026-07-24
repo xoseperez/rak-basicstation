@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.1] — 2026-07-24
+
+### Added
+- **Context caching trace logs** (`debug` level): the uplink path logs each cached
+  `rx_info.context` blob (`xtime`, `count_us`, hex context, cache size), and the downlink
+  path logs the matching cache hit for Class A and Class C. Both lines carry the same
+  `xtime`, so a single exchange can be followed end to end. Cache sweeps log the number
+  of expired entries.
+
+---
+
 ## [0.3.0] — 2026-02-25
 
 ### Added

@@ -11,7 +11,7 @@ Two hardware backends are supported, selected at runtime via config:
 - **`concentratord`** — ChirpStack Concentratord over ZMQ IPC (default)
 - **`semtech_udp`** — Semtech UDP Packet Forwarder protocol (port 1700)
 
-Current version: **0.3.0**. Targets: x86_64, aarch64, armv7, armv5te, mipsel (RAK OpenWrt).
+Current version: **0.3.1**. Targets: x86_64, aarch64, armv7, armv5te, mipsel (RAK OpenWrt).
 
 Deployment packaging lives in `packaging/`:
 - `packaging/docker/` — Docker config template + entrypoint script

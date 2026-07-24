@@ -1,6 +1,6 @@
 # Product Requirements Document — RAK BasicStation Forwarder
 
-**Version**: 0.3.0
+**Version**: 0.3.1
 **Date**: 2026-02-26
 **Status**: Active Development
 
