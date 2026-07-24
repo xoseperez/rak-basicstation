@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="620" height="200" viewBox="0 0 620 200"
+     font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+      <polygon points="0 0, 8 3, 0 6" fill="#5b8dd9"/>
+    </marker>
+  </defs>
+  <rect width="620" height="200" fill="white"/>
+
+  <!-- Left column: Concentratord -->
+  <rect x="20" y="20" width="155" height="52" rx="4" fill="#f0f4fb" stroke="#5b8dd9" stroke-width="1.5"/>
+  <text x="97" y="41" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e2a3a">Concentratord</text>
+  <text x="97" y="59" text-anchor="middle" font-size="11" fill="#4a5568">ChirpStack (ZMQ)</text>
+
+  <!-- Left column: Semtech UDP -->
+  <rect x="20" y="128" width="155" height="52" rx="4" fill="#f0f4fb" stroke="#5b8dd9" stroke-width="1.5"/>
+  <text x="97" y="149" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e2a3a">Semtech UDP</text>
+  <text x="97" y="167" text-anchor="middle" font-size="11" fill="#4a5568">Pkt Forwarder</text>
+
+  <!-- Center: RAK BasicStation -->
+  <rect x="225" y="20" width="170" height="160" rx="6" fill="#e8eef8" stroke="#3a6bc5" stroke-width="2"/>
+  <text x="310" y="96" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e2a3a">RAK</text>
+  <text x="310" y="115" text-anchor="middle" font-size="15" font-weight="bold" fill="#1e2a3a">BasicStation</text>
+
+  <!-- Right column: LNS -->
+  <rect x="445" y="20" width="155" height="52" rx="4" fill="#f0f4fb" stroke="#5b8dd9" stroke-width="1.5"/>
+  <text x="522" y="41" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e2a3a">LNS</text>
+  <text x="522" y="59" text-anchor="middle" font-size="11" fill="#4a5568">Network Server</text>
+
+  <!-- Right column: CUPS -->
+  <rect x="445" y="128" width="155" height="52" rx="4" fill="#f0f4fb" stroke="#5b8dd9" stroke-width="1.5"/>
+  <text x="522" y="149" text-anchor="middle" font-size="13" font-weight="bold" fill="#1e2a3a">CUPS Server</text>
+  <text x="522" y="167" text-anchor="middle" font-size="11" fill="#4a5568">Remote Config</text>
+
+  <!-- Wire: Concentratord → RAK BasicStation -->
+  <line x1="175" y1="46" x2="223" y2="46" stroke="#5b8dd9" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="199" y="40" text-anchor="middle" font-size="10" font-style="italic" fill="#4a5568">ZMQ</text>
+
+  <!-- Wire: Semtech UDP → RAK BasicStation -->
+  <line x1="175" y1="154" x2="223" y2="154" stroke="#5b8dd9" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="199" y="148" text-anchor="middle" font-size="10" font-style="italic" fill="#4a5568">UDP</text>
+
+  <!-- Wire: RAK BasicStation → LNS -->
+  <line x1="397" y1="46" x2="443" y2="46" stroke="#5b8dd9" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="420" y="40" text-anchor="middle" font-size="10" font-style="italic" fill="#4a5568">WSS</text>
+
+  <!-- Wire: RAK BasicStation → CUPS -->
+  <line x1="397" y1="154" x2="443" y2="154" stroke="#5b8dd9" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="420" y="148" text-anchor="middle" font-size="10" font-style="italic" fill="#4a5568">HTTPS</text>
+</svg>

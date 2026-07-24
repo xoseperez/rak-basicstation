@@ -36,6 +36,7 @@ This document is aimed at developers who want to understand, maintain, or extend
    - [src/cups/credentials.rs](#srccupscredentialsrs)
    - [src/cmd/configfile.rs](#srccmdconfigfilers)
    - [examples/fake\_concentratord.rs](#examplesfake_concentratordrs)
+   - [examples/load\_test.rs](#examplesload_testrs)
 6. [Key Patterns](#key-patterns)
 7. [Testing](#testing)
 8. [Adding a New Backend](#adding-a-new-backend)
@@ -80,22 +81,7 @@ Both backends are compiled in by default but either can be excluded at compile t
 
 ### Layered Design
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                          main.rs                             │
-│          CLI parsing · initialization · signal handling      │
-└──────────┬──────────────────────────────────────┬───────────┘
-           │                                      │
-    ┌──────▼──────┐                      ┌────────▼────────┐
-    │   backend/  │                      │     cups/       │
-    │  (Hardware) │                      │  (Remote cfg)   │
-    └──────┬──────┘                      └────────┬────────┘
-           │  UplinkFrame / DownlinkFrame          │ TC URI / creds
-    ┌──────▼──────────────────────────────────────▼────────┐
-    │                        lns/                           │
-    │        BasicStation protocol · WebSocket · TLS        │
-    └──────────────────────────────────────────────────────┘
-```
+![Layered architecture](assets/architecture-layered.svg)
 
 Vertical dependencies:
 - `main.rs` owns startup and wires the layers together.
@@ -130,45 +116,11 @@ Blocking operations (ZMQ receive, which is not async-native) are offloaded via `
 
 **Uplink (gateway → LNS):**
 
-```
-Hardware
-  │ ZMQ event / UDP packet
-  ▼
-backend (concentratord.rs or semtech_udp/mod.rs)
-  │ gw::UplinkFrame (protobuf)
-  │ CRC filter applied
-  ▼
-lns::send_uplink()
-  │ queued into WS_SENDER channel
-  ▼
-lns/uplink.rs  ← frame_to_json()
-  │ parses LoRaWAN MHDR, builds jreq/updf/propdf JSON
-  ▼
-WebSocket writer task
-  │ tokio-tungstenite Text message
-  ▼
-Network Server
-```
+![Uplink data flow](assets/data-flow-uplink.svg)
 
 **Downlink (LNS → gateway):**
 
-```
-Network Server
-  │ dnmsg / dnsched WebSocket message
-  ▼
-lns/websocket.rs  ← message demultiplexer
-  ▼
-lns/downlink.rs  ← handle_dnmsg() / handle_dnsched()
-  │ builds gw::DownlinkFrame (protobuf)
-  ▼
-backend::send_downlink_frame()
-  │ ZMQ REQ/REP / UDP PULL_RESP
-  ▼
-Hardware
-  │ TX ACK
-  ▼
-lns/websocket.rs  ← sends dntxed confirmation
-```
+![Downlink data flow](assets/data-flow-downlink.svg)
 
 ---
 
@@ -536,6 +488,26 @@ Commands handled:
 Run it alongside `rak-basicstation` for end-to-end testing:
 ```sh
 cargo run --example fake_concentratord -- -c examples/fake_concentratord.toml
+```
+
+### examples/load\_test.rs
+
+An end-to-end load test that combines a fake Concentratord backend with a fake LNS
+WebSocket server in a single process. It generates a configurable burst of synthetic
+uplink frames, receives them on the fake LNS side, and reports throughput and
+round-trip latency statistics.
+
+Key design points:
+- The fake LNS listens on a local port; `rak-basicstation` connects to it as if it
+  were a real network server.
+- Each uplink is tagged with a sequence number so the receiver can detect drops or
+  reordering.
+- Results are printed as a summary table: total frames sent/received, elapsed time,
+  frames/second, and p50/p95/p99 latency.
+
+Run with:
+```sh
+cargo run --example load_test -- -c examples/load_test.toml
 ```
 
 ---

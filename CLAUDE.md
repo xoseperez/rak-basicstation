@@ -1,5 +1,25 @@
 # CLAUDE.md — Developer Notes for AI Assistants
 
+## Project overview
+
+`rak-basicstation` is a Rust LoRaWAN packet forwarder implementing the
+[LoRa Basics Station](https://doc.sm.tc/station/) (LNS + CUPS) protocol. It bridges
+gateway hardware to a LoRaWAN Network Server over WebSocket/TLS, with optional remote
+configuration via CUPS (HTTPS).
+
+Two hardware backends are supported, selected at runtime via config:
+- **`concentratord`** — ChirpStack Concentratord over ZMQ IPC (default)
+- **`semtech_udp`** — Semtech UDP Packet Forwarder protocol (port 1700)
+
+Current version: **0.3.0**. Targets: x86_64, aarch64, armv7, armv5te, mipsel (RAK OpenWrt).
+
+Deployment packaging lives in `packaging/`:
+- `packaging/docker/` — Docker config template + entrypoint script
+- `packaging/debian/` — systemd unit + default TOML config for `.deb` packages
+- `packaging/vendor/rak/mipsel_24kc/` — RAK OpenWrt IPK packaging script
+
+OpenWrt-specific packages (init script, UCI config, LuCI web UI) are in `openwrt/`.
+
 ## Build & test
 
 ```sh

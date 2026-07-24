@@ -9,25 +9,7 @@ A LoRaWAN packet forwarder that implements the [LoRa Basics Station](https://doc
 
 This is a Rust implementation of the [LoRa Basics Station](https://github.com/lorabasics/basicstation) protocol that bridges gateway hardware (via either backend) with LoRaWAN Network Servers using the BasicStation LNS/CUPS protocols.
 
-```text
-┌──────────────────────────────────────────────────────────┐
-│                     rak-basicstation                     │
-│                                                          │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────┐  ┌───────┐  │
-│  │Concentratord │  │  Semtech UDP │  │ LNS │  │ CUPS  │  │
-│  │Backend (ZMQ) │  │Backend (UDP) │  │(WSS)│  │(HTTPS)│  │
-│  └──────┬───────┘  └──────┬───────┘  └──┬──┘  └──┬────┘  │
-│         │                 │             │        │       │
-│         └────────┬────────┘    ┌────────┴───┐    │       │
-│                  │             │  Protocol  │    │       │
-│                  └─────────────┤  Bridge    ├────┘       │
-│                                │(proto↔JSON)│            │
-│                                └────────────┘            │
-└──────────┬──────────┬──────────────┬─────────────┬───────┘
-           ▼          ▼              ▼             ▼
-    Concentratord  Semtech UDP   LoRaWAN LNS   CUPS Server
-     (ZMQ IPC)    Pkt Forwarder  (WebSocket)    (HTTPS)
-```
+![Architecture overview](assets/architecture-overview.svg)
 
 ## Features
 
@@ -268,7 +250,7 @@ multi-arch manifest covering `linux/amd64`, `linux/arm64`, and `linux/arm/v7` on
    - `x86_64-unknown-linux-musl` → `linux/amd64`
    - `aarch64-unknown-linux-musl` → `linux/arm64`
    - `armv7-unknown-linux-musleabihf` → `linux/arm/v7`
-2. Binaries are staged under `dist/` with names matching Docker's `TARGETARCH`+`TARGETVARIANT` pattern (`dist/rak-basicstation-amd64`, `dist/rak-basicstation-arm64`, `dist/rak-basicstation-armv7`).
+2. Binaries are downloaded into artifact subdirectories under `dist/` (`dist/rak-basicstation-amd64/rak-basicstation`, etc.). `Dockerfile.release` references them as `dist/rak-basicstation-${TARGETARCH}${TARGETVARIANT}/rak-basicstation`, which resolves to the correct per-arch binary at build time.
 3. `docker buildx` assembles the multi-arch manifest using `Dockerfile.release`, which simply copies the right binary — no compilation happens inside Docker.
 
 Because the musl binaries are fully statically linked (ZMQ is bundled by `zmq-sys`), the
@@ -300,10 +282,10 @@ make dev-dependencies
 make build-x86_64-unknown-linux-musl
 make build-aarch64-unknown-linux-musl
 make build-armv7-unknown-linux-musleabihf
-mkdir -p dist
-cp target/x86_64-unknown-linux-musl/release/rak-basicstation  dist/rak-basicstation-amd64
-cp target/aarch64-unknown-linux-musl/release/rak-basicstation  dist/rak-basicstation-arm64
-cp target/armv7-unknown-linux-musleabihf/release/rak-basicstation dist/rak-basicstation-armv7
+mkdir -p dist/rak-basicstation-amd64 dist/rak-basicstation-arm64 dist/rak-basicstation-armv7
+cp target/x86_64-unknown-linux-musl/release/rak-basicstation  dist/rak-basicstation-amd64/rak-basicstation
+cp target/aarch64-unknown-linux-musl/release/rak-basicstation  dist/rak-basicstation-arm64/rak-basicstation
+cp target/armv7-unknown-linux-musleabihf/release/rak-basicstation dist/rak-basicstation-armv7/rak-basicstation
 
 # Build and push the multi-arch image
 docker buildx build -f Dockerfile.release \
@@ -345,6 +327,14 @@ src/
 examples/
 ├── fake_concentratord.rs   # Fake Concentratord for functional testing
 └── load_test.rs            # End-to-end load test (fake backend + fake LNS)
+packaging/
+├── debian/
+│   ├── rak-basicstation.toml    # Default config installed by .deb
+│   └── rak-basicstation.service # systemd unit
+├── docker/
+│   ├── rak-basicstation.toml    # Config template for Docker image
+│   └── docker-entrypoint.sh    # Entrypoint (env-var substitution)
+└── vendor/rak/mipsel_24kc/      # RAK OpenWrt IPK packaging
 openwrt/
 ├── rak-basicstation/           # OpenWrt package (binary + init + UCI config)
 │   ├── Makefile
