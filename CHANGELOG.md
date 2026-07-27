@@ -2,6 +2,36 @@
 
 All notable changes to this project are documented here.
 
+## [0.3.2] — 2026-07-27
+
+### Fixed
+- **Mesh downlinks now work end to end.** Four independent defects prevented a downlink
+  from ever reaching a device behind a ChirpStack Gateway Mesh relay:
+  - **Downlink TX power was hardcoded to `0`**, which the mesh relay rejects outright
+    (`No TX Power equal or lower than: 0`), so the frame was never transmitted. Power is
+    now derived from the `router_config` region — capped by `max_eirp` when the LNS sends
+    it, and clamped to the relay's minimum with a warning when that would be exceeded.
+    The direct concentratord path is unchanged and still emits `0`.
+  - **The relayed-uplink context was misparsed as a 4-byte `count_us`.** The mesh proxy
+    replaces `rx_info.context` with `[1,2,3] + relay_id + uplink_id`, so the derived
+    counter was the constant `0x010203F1` and every uplink collapsed onto a single cache
+    key. A distinct per-uplink `xtime` is now synthesized for mesh contexts; plain
+    concentratord contexts keep their real `count_us` unchanged.
+  - **`xtime` was computed twice**, independently, for the cache key and for the value
+    reported to the LNS. They are now one value, so they cannot diverge.
+  - **The `xtime` offset some LNS apply was ignored.** ChirpStack echoes `xtime` verbatim
+    and puts the whole window in `RxDelay`; TTN returns `uplink_xtime + 4s` alongside
+    `RxDelay: 1`, whose sum is the real RX1 delay. The lookup now probes whole-second
+    offsets and reuses the matched offset for scheduling, so a TTN join-accept is
+    transmitted at +5s instead of +1s. An ambiguous match (two uplinks inside the probe
+    window) is refused rather than guessed.
+
+### Added
+- `region_default_dbm()` mirroring the reference station's region table, including the
+  obsolete `EU863` alias that both ChirpStack and TTN still send for `EU868`.
+
+---
+
 ## [0.3.1] — 2026-07-24
 
 ### Added
