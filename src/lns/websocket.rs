@@ -131,6 +131,13 @@ async fn handle_text_message(
     session: u8,
     _conf: &Configuration,
 ) -> Result<()> {
+    // Raw-payload logging. Deliberately commented out: `logging::setup()` applies a
+    // single global `log::set_max_level`, so enabling `trace` here would also enable
+    // trace for tokio/rustls/tungstenite. It also emits the DevEui and the pdu.
+    // Uncomment for bench debugging only -- do not ship enabled. Re-enabling it safely
+    // needs per-module filtering in logging.rs first.
+    // trace!("LNS -> {}", text);
+
     let generic: GenericMessage = serde_json::from_str(text)?;
     debug!("Received message, msgtype: {}", generic.msgtype);
 

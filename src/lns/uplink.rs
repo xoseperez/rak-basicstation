@@ -11,8 +11,9 @@ use super::router_config::RouterConfigState;
 pub fn frame_to_json(
     frame: &gw::UplinkFrame,
     rc: &RouterConfigState,
-    session: u8,
+    _session: u8,
     ref_time: Option<f64>,
+    xtime: i64,
 ) -> Result<String> {
     let phy = &frame.phy_payload;
     if phy.is_empty() {
@@ -33,7 +34,7 @@ pub fn frame_to_json(
 
     let freq = tx_info.frequency;
     let dr = modulation_to_dr(tx_info, rc)?;
-    let upinfo = build_upinfo(rx_info, session)?;
+    let upinfo = build_upinfo(rx_info, xtime)?;
 
     match mtype {
         // Join Request (MType 0b000)
@@ -189,23 +190,12 @@ fn modulation_to_dr(tx_info: &gw::UplinkTxInfo, rc: &RouterConfigState) -> Resul
 }
 
 /// Build an UpInfo struct from UplinkRxInfo.
-fn build_upinfo(rx_info: &gw::UplinkRxInfo, session: u8) -> Result<UpInfo> {
-    // Construct xtime from concentrator context.
-    // context is a 4-byte big-endian count_us value.
-    let count_us = if rx_info.context.len() >= 4 {
-        u32::from_be_bytes([
-            rx_info.context[0],
-            rx_info.context[1],
-            rx_info.context[2],
-            rx_info.context[3],
-        ]) as i64
-    } else {
-        0
-    };
-
-    // xtime format: bits[62:56]=radio_unit(0), bits[55:48]=session, bits[47:0]=count_us
-    let xtime = ((session as i64) << 48) | (count_us & 0x0000_FFFF_FFFF_FFFF);
-
+///
+/// `xtime` is computed once by `lns::uplink_xtime()` and passed in, so the value reported
+/// to the LNS is always identical to the context-cache key. Deriving it here independently
+/// (as an earlier revision did) risks the two silently diverging, which makes every cache
+/// lookup miss.
+fn build_upinfo(rx_info: &gw::UplinkRxInfo, xtime: i64) -> Result<UpInfo> {
     // rctx: opaque context from concentratord, passed back as-is in downlinks.
     let rctx = if rx_info.context.len() >= 4 {
         u32::from_be_bytes([

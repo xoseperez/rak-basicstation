@@ -1,8 +1,55 @@
 use anyhow::Result;
 use chirpstack_api::gw;
-use log::{debug, info};
+use log::{debug, info, warn};
 
 use super::messages::RouterConfig;
+
+/// Default TX power (dBm) when the region is unknown.
+/// Matches the reference station's builtin default (s2e.c: `txpow = 14 * TXPOW_SCALE`).
+const REGION_DEFAULT_DBM: i32 = 14;
+
+/// Lowest TX power (dBm) a ChirpStack Gateway Mesh relay will accept.
+/// `tx_power_to_index()` picks the highest configured entry <= the requested power and
+/// errors when none matches, so anything below the table floor is rejected outright.
+const MIN_TX_POWER_DBM: i32 = 12;
+
+/// Region default TX power (dBm), mirroring the reference station's region table.
+/// `EU863` is the obsolete alias ChirpStack still sends for `EU868`.
+fn region_default_dbm(region: &str) -> i32 {
+    match region.to_ascii_uppercase().as_str() {
+        "EU868" | "EU863" => 16,
+        _ => REGION_DEFAULT_DBM,
+    }
+}
+
+/// Resolve the downlink TX power from the router_config.
+///
+/// The LNS-supplied `max_eirp` only ever *lowers* the region default (s2e.c applies it as a
+/// cap), and is absent entirely on some LNS -- ChirpStack omits the field, which
+/// `#[serde(default)]` renders as `0.0`. The result is clamped to the mesh relay's floor,
+/// since a value below it would be rejected exactly like the legacy hardcoded `0`.
+fn resolve_tx_power_dbm(region: &str, max_eirp: f64) -> i32 {
+    let region_default = region_default_dbm(region);
+    let capped = if max_eirp > 0.0 {
+        region_default.min(max_eirp.round() as i32)
+    } else {
+        region_default
+    };
+
+    if capped < MIN_TX_POWER_DBM {
+        // Deliberately NOT configurable: the floor belongs to the mesh relay's region
+        // table, so a second copy here would silently drift out of sync. Raising the
+        // power does mean exceeding an LNS-advertised limit, so say so loudly rather
+        // than let it pass unnoticed.
+        warn!(
+            "Derived TX power {} dBm is below the mesh relay minimum {} dBm; raising it. \
+             The LNS advertised max_eirp {} -- verify this is legal for region {}.",
+            capped, MIN_TX_POWER_DBM, max_eirp, region
+        );
+    }
+
+    capped.max(MIN_TX_POWER_DBM)
+}
 
 /// Parsed and stored router_config state.
 #[derive(Debug, Clone)]
@@ -23,6 +70,9 @@ pub struct RouterConfigState {
 
     /// Region string.
     pub region: String,
+
+    /// Downlink TX power in dBm, derived from the region and `max_eirp`.
+    pub tx_power_dbm: i32,
 }
 
 impl RouterConfigState {
@@ -51,12 +101,19 @@ impl RouterConfigState {
             (0, 0)
         };
 
+        let tx_power_dbm = resolve_tx_power_dbm(&rc.region, rc.max_eirp);
+        info!(
+            "Resolved downlink TX power, region: {}, max_eirp: {}, tx_power: {} dBm",
+            rc.region, rc.max_eirp, tx_power_dbm
+        );
+
         RouterConfigState {
             drs,
             net_ids: rc.net_id.clone(),
             join_eui_ranges,
             freq_range,
             region: rc.region.clone(),
+            tx_power_dbm,
         }
     }
 
@@ -229,4 +286,46 @@ pub fn to_gateway_configuration(rc: &RouterConfig) -> Result<gw::GatewayConfigur
         channels,
         stats_interval: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_region_default_eu868_and_obsolete_alias() {
+        // ChirpStack reports the obsolete "EU863"; the reference station maps it to EU868.
+        assert_eq!(region_default_dbm("EU868"), 16);
+        assert_eq!(region_default_dbm("EU863"), 16);
+        assert_eq!(region_default_dbm("eu863"), 16);
+    }
+
+    #[test]
+    fn test_region_default_unknown_falls_back() {
+        assert_eq!(region_default_dbm("US915"), REGION_DEFAULT_DBM);
+        assert_eq!(region_default_dbm(""), REGION_DEFAULT_DBM);
+    }
+
+    #[test]
+    fn test_absent_max_eirp_uses_region_default() {
+        // ChirpStack omits max_eirp entirely -> serde default 0.0. Using it directly
+        // would yield power 0, which the mesh relay rejects.
+        assert_eq!(resolve_tx_power_dbm("EU863", 0.0), 16);
+    }
+
+    #[test]
+    fn test_max_eirp_only_lowers() {
+        // A cap below the region default lowers it...
+        assert_eq!(resolve_tx_power_dbm("EU868", 14.0), 14);
+        // ...but never raises it.
+        assert_eq!(resolve_tx_power_dbm("EU868", 27.0), 16);
+    }
+
+    #[test]
+    fn test_result_is_clamped_to_mesh_floor() {
+        // Below the relay's table floor the downlink would be rejected exactly like the
+        // legacy hardcoded 0, so clamp up.
+        assert_eq!(resolve_tx_power_dbm("EU868", 5.0), MIN_TX_POWER_DBM);
+        assert_eq!(resolve_tx_power_dbm("US915", 1.0), MIN_TX_POWER_DBM);
+    }
 }

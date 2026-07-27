@@ -129,24 +129,99 @@ pub async fn handle_dnsched(
     Ok(())
 }
 
-/// Resolve the concentrator context to attach to a downlink referencing `xtime`.
+/// ChirpStack Gateway Mesh tags relayed uplinks with `[1,2,3] + relay_id(4) + uplink_id(2)`.
+/// It relays a downlink only when the context has exactly that shape; anything else is
+/// transmitted locally without a TX power lookup.
+const MESH_CTX_PREFIX: [u8; 3] = [1, 2, 3];
+const MESH_CTX_LEN: usize = MESH_CTX_PREFIX.len() + 6;
+
+fn is_mesh_context(context: &[u8]) -> bool {
+    context.len() == MESH_CTX_LEN && context[..MESH_CTX_PREFIX.len()] == MESH_CTX_PREFIX
+}
+
+/// TX power (dBm) for a downlink item.
 ///
-/// Prefers the full `rx_info.context` blob cached when the uplink was forwarded;
-/// falls back to the legacy 4-byte count_us encoding when caching is disabled or
-/// the entry is not there (expired, or the uplink was never seen on this session).
-fn resolve_context(xtime: i64, count_us: u32, class: &str) -> Vec<u8> {
-    match super::get_cached_context(xtime) {
-        Some(context) => {
+/// Only mesh-relayed downlinks need a real value: the relay resolves the requested power
+/// against its configured table and rejects anything below the floor, which is why the
+/// legacy hardcoded `0` failed with "No TX Power equal or lower than: 0". The direct
+/// concentratord path works with `0` today and is deliberately left untouched.
+fn downlink_power(rc: &RouterConfigState, context: &[u8]) -> i32 {
+    if is_mesh_context(context) {
+        rc.tx_power_dbm
+    } else {
+        0
+    }
+}
+
+/// Largest whole-second offset probed between the uplink `xtime` and the one echoed by
+/// the LNS. LoRaWAN caps RxDelay at 15 s, so no legitimate offset exceeds this.
+const MAX_XTIME_OFFSET_SECS: i64 = 15;
+
+/// Outcome of matching a downlink back to the uplink that caused it.
+struct ResolvedContext {
+    /// Context to attach: the cached blob on a hit, else the legacy 4-byte count_us.
+    context: Vec<u8>,
+    /// Whole seconds the LNS added to the uplink `xtime`. `0` on a verbatim echo and on
+    /// a miss. Must be added to `RxDelay` to get the true RX1 delay.
+    offset_secs: i64,
+}
+
+/// Resolve the concentrator context for a downlink referencing `xtime`.
+///
+/// Not every LNS echoes the uplink `xtime` verbatim. ChirpStack does, and puts the whole
+/// window in `RxDelay`. TTN instead returns `uplink_xtime + 4s` alongside `RxDelay: 1`,
+/// so the *sum* is the RX1 delay -- which is what the reference station computes
+/// (`s2e.c:1487`: `txjob->xtime += rxdelay * 1000000`).
+///
+/// So the lookup probes whole-second offsets. The matched offset is returned because it is
+/// also needed for scheduling: transmitting at `RxDelay` alone would be 4 s early on TTN.
+///
+/// If more than one cached uplink matches a candidate offset the match is **refused**:
+/// restoring the wrong relay context (and scheduling against the wrong uplink) is worse
+/// than falling back, because it misroutes silently instead of failing visibly.
+fn resolve_context(xtime: i64, count_us: u32, rx_delay: u32, class: &str) -> ResolvedContext {
+    let fallback = ResolvedContext {
+        context: count_us.to_be_bytes().to_vec(),
+        offset_secs: 0,
+    };
+
+    // Offsets that could still yield a legal total window, smallest first.
+    let max_offset = MAX_XTIME_OFFSET_SECS.saturating_sub(rx_delay as i64).max(0);
+    let mut matches: Vec<(i64, Vec<u8>)> = Vec::new();
+    for offset in 0..=max_offset {
+        let candidate = xtime - offset * 1_000_000;
+        if let Some(context) = super::get_cached_context(candidate) {
+            matches.push((offset, context));
+        }
+    }
+
+    match matches.len() {
+        0 => fallback,
+        1 => {
+            let (offset_secs, context) = matches.into_iter().next().unwrap();
             debug!(
-                "Class {} downlink, context cache hit, xtime: {}, context: {}, len: {}",
+                "Class {} downlink, context cache hit, xtime: {}, offset: {}s, rx_delay: {}s, context: {}, len: {}",
                 class,
                 xtime,
+                offset_secs,
+                rx_delay,
                 hex::encode(&context),
                 context.len()
             );
-            context
+            ResolvedContext {
+                context,
+                offset_secs,
+            }
         }
-        None => count_us.to_be_bytes().to_vec(),
+        n => {
+            // Two uplinks fell inside the probe window; we cannot tell which caused this
+            // downlink. Decline rather than guess.
+            warn!(
+                "Class {} downlink, context cache ambiguous ({} candidates), xtime: {}, falling back",
+                class, n, xtime
+            );
+            fallback
+        }
     }
 }
 
@@ -169,7 +244,11 @@ fn build_class_a_downlink(
         xtime, count_us, rx_delay, msg.rctx
     );
 
-    let context = resolve_context(xtime, count_us, "A");
+    let resolved = resolve_context(xtime, count_us, rx_delay, "A");
+    let context = resolved.context;
+    let power = downlink_power(rc, &context);
+    // True RX1 delay = whatever the LNS folded into xtime + the RxDelay it sent.
+    let rx1_delay = rx_delay as i64 + resolved.offset_secs;
 
     let mut items = Vec::new();
 
@@ -184,12 +263,13 @@ fn build_class_a_downlink(
                 gw::Timing {
                     parameters: Some(gw::timing::Parameters::Delay(gw::DelayTimingInfo {
                         delay: Some(pbjson_types::Duration {
-                            seconds: rx_delay as i64,
+                            seconds: rx1_delay,
                             nanos: 0,
                         }),
                     })),
                 },
                 context.clone(),
+                power,
             ));
         }
 
@@ -204,12 +284,13 @@ fn build_class_a_downlink(
                 gw::Timing {
                     parameters: Some(gw::timing::Parameters::Delay(gw::DelayTimingInfo {
                         delay: Some(pbjson_types::Duration {
-                            seconds: (rx_delay + 1) as i64,
+                            seconds: rx1_delay + 1,
                             nanos: 0,
                         }),
                     })),
                 },
                 context.clone(),
+                power,
             ));
         }
 
@@ -288,7 +369,10 @@ fn build_class_c_downlink(
             xtime, count_us, rx_delay, msg.rctx
         );
 
-        let context = resolve_context(xtime, count_us, "C");
+        let resolved = resolve_context(xtime, count_us, rx_delay, "C");
+        let context = resolved.context;
+        let power = downlink_power(rc, &context);
+        let rx1_delay = rx_delay as i64 + resolved.offset_secs;
 
         // RX1 window.
         if let (Some(rx1_dr), Some(rx1_freq)) = (msg.rx1_dr, msg.rx1_freq)
@@ -301,12 +385,13 @@ fn build_class_c_downlink(
                     gw::Timing {
                         parameters: Some(gw::timing::Parameters::Delay(gw::DelayTimingInfo {
                             delay: Some(pbjson_types::Duration {
-                                seconds: rx_delay as i64,
+                                seconds: rx1_delay,
                                 nanos: 0,
                             }),
                         })),
                     },
                     context.clone(),
+                    power,
                 ));
             }
 
@@ -321,12 +406,13 @@ fn build_class_c_downlink(
                     gw::Timing {
                         parameters: Some(gw::timing::Parameters::Delay(gw::DelayTimingInfo {
                             delay: Some(pbjson_types::Duration {
-                                seconds: (rx_delay + 1) as i64,
+                                seconds: rx1_delay + 1,
                                 nanos: 0,
                             }),
                         })),
                     },
                     context.clone(),
+                    power,
                 ));
             }
     } else {
@@ -390,6 +476,7 @@ mod tests {
             join_eui_ranges: vec![],
             freq_range: (863_000_000, 870_000_000),
             region: "EU868".to_string(),
+            tx_power_dbm: 16,
         }
     }
 
@@ -540,12 +627,13 @@ fn build_downlink_item(
     bw_hz: u32,
     timing: gw::Timing,
     context: Vec<u8>,
+    power: i32,
 ) -> gw::DownlinkFrameItem {
     gw::DownlinkFrameItem {
         phy_payload: phy_payload.to_vec(),
         tx_info: Some(gw::DownlinkTxInfo {
             frequency,
-            power: 0,
+            power,
             modulation: Some(gw::Modulation {
                 parameters: Some(gw::modulation::Parameters::Lora(
                     gw::LoraModulationInfo {
@@ -562,5 +650,135 @@ fn build_downlink_item(
             ..Default::default()
         }),
         ..Default::default()
+    }
+}
+
+#[cfg(test)]
+mod power_tests {
+    use super::*;
+    use crate::lns::router_config::RouterConfigState;
+
+    fn rc_with_power(tx_power_dbm: i32) -> RouterConfigState {
+        RouterConfigState {
+            drs: vec![],
+            net_ids: vec![],
+            join_eui_ranges: vec![],
+            freq_range: (863_000_000, 870_000_000),
+            region: "EU868".to_string(),
+            tx_power_dbm,
+        }
+    }
+
+    /// A mesh-relayed context: [1,2,3] + relay_id(4) + uplink_id(2).
+    fn mesh_ctx() -> Vec<u8> {
+        vec![1, 2, 3, 0xf1, 0x0c, 0xab, 0x4e, 0x02, 0xee]
+    }
+
+    #[test]
+    fn test_mesh_context_detected() {
+        assert!(is_mesh_context(&mesh_ctx()));
+    }
+
+    #[test]
+    fn test_non_mesh_contexts_rejected() {
+        // The 4-byte count_us fallback used by the direct concentratord path.
+        assert!(!is_mesh_context(&[0x01, 0x02, 0x03, 0xf1]));
+        // Right prefix, wrong length.
+        assert!(!is_mesh_context(&[1, 2, 3, 4, 5]));
+        // Right length, wrong prefix.
+        assert!(!is_mesh_context(&[9, 9, 9, 0, 0, 0, 0, 0, 0]));
+        assert!(!is_mesh_context(&[]));
+    }
+
+    #[test]
+    fn test_mesh_downlink_gets_real_power() {
+        assert_eq!(downlink_power(&rc_with_power(16), &mesh_ctx()), 16);
+    }
+
+    #[test]
+    fn test_direct_path_power_unchanged() {
+        // RQ-003d: the direct concentratord path keeps emitting 0 regardless of the
+        // resolved region power.
+        assert_eq!(downlink_power(&rc_with_power(16), &[0x01, 0x02, 0x03, 0xf1]), 0);
+    }
+}
+
+#[cfg(test)]
+mod offset_tests {
+    use super::*;
+    use crate::lns::{cache_context, clear_context_cache, CACHE_TEST_LOCK};
+    use std::sync::atomic::Ordering;
+
+    fn setup() -> std::sync::MutexGuard<'static, ()> {
+        let g = CACHE_TEST_LOCK.lock().unwrap();
+        clear_context_cache();
+        crate::lns::CONTEXT_CACHING_ENABLED.store(true, Ordering::Relaxed);
+        g
+    }
+
+    fn ctx(tag: u8) -> Vec<u8> {
+        vec![1, 2, 3, 0xf1, 0x0c, 0xab, 0x4e, 0x02, tag]
+    }
+
+    /// ChirpStack: verbatim echo, whole window in RxDelay.
+    #[test]
+    fn test_verbatim_echo_resolves_with_zero_offset() {
+        let _g = setup();
+        let uplink = 1_000_000_000i64;
+        cache_context(uplink, ctx(0xaa));
+        let r = resolve_context(uplink, 0, 5, "A");
+        assert_eq!(r.context, ctx(0xaa));
+        assert_eq!(r.offset_secs, 0);
+        // RX1 delay stays 5s -- unchanged from pre-fix behaviour.
+        assert_eq!(5 + r.offset_secs, 5);
+    }
+
+    /// TTN: xtime offset by +4s, RxDelay 1 -> the sum is the real 5s join window.
+    #[test]
+    fn test_offset_echo_resolves_and_restores_timing() {
+        let _g = setup();
+        let uplink = 2_000_000_000i64;
+        cache_context(uplink, ctx(0xbb));
+        let echoed = uplink + 4 * 1_000_000;
+        let r = resolve_context(echoed, 0, 1, "A");
+        assert_eq!(r.context, ctx(0xbb), "must find the uplink 4s back");
+        assert_eq!(r.offset_secs, 4);
+        // Without this the downlink would go out at 1s -- 4s before the device listens.
+        assert_eq!(1 + r.offset_secs, 5, "reconstructed JOIN_ACCEPT_DELAY1");
+    }
+
+    #[test]
+    fn test_miss_falls_back_to_count_us_and_zero_offset() {
+        let _g = setup();
+        let r = resolve_context(9_999_999_999, 0x0102_0304, 1, "A");
+        assert_eq!(r.context, 0x0102_0304u32.to_be_bytes().to_vec());
+        assert_eq!(r.offset_secs, 0, "fallback must not shift timing");
+    }
+
+    /// Two uplinks inside the probe window: refuse rather than misroute.
+    #[test]
+    fn test_ambiguous_match_is_refused() {
+        let _g = setup();
+        let a = 3_000_000_000i64;
+        cache_context(a, ctx(0xcc));
+        cache_context(a + 3 * 1_000_000, ctx(0xdd)); // 3s later
+        // A downlink echoed 4s after `a` also sits 1s after the second uplink.
+        let r = resolve_context(a + 4 * 1_000_000, 0x0102_0304, 1, "A");
+        assert_eq!(
+            r.context,
+            0x0102_0304u32.to_be_bytes().to_vec(),
+            "ambiguous match must fall back, never pick one arbitrarily"
+        );
+        assert_eq!(r.offset_secs, 0);
+    }
+
+    #[test]
+    fn test_probe_window_bounded_by_rx_delay() {
+        let _g = setup();
+        let uplink = 4_000_000_000i64;
+        cache_context(uplink, ctx(0xee));
+        // offset 15 with RxDelay 1 would imply a 16s window -- beyond LoRaWAN's max.
+        let r = resolve_context(uplink + 15 * 1_000_000, 0x0102_0304, 1, "A");
+        assert_eq!(r.context, 0x0102_0304u32.to_be_bytes().to_vec());
     }
 }

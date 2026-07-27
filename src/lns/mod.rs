@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicI64, Ordering},
     Arc, LazyLock, Mutex, RwLock,
 };
 use std::time::{Duration, Instant};
@@ -42,7 +42,7 @@ static CUPS_TC_AUTH_HEADERS: LazyLock<RwLock<Vec<(String, String)>>> =
     LazyLock::new(|| RwLock::new(Vec::new()));
 
 /// Whether context caching is enabled (concentratord backend only).
-static CONTEXT_CACHING_ENABLED: AtomicBool = AtomicBool::new(false);
+pub(crate) static CONTEXT_CACHING_ENABLED: AtomicBool = AtomicBool::new(false);
 
 /// Serializes tests that mutate the shared cache statics.
 #[cfg(test)]
@@ -56,6 +56,54 @@ pub(crate) fn clear_context_cache() {
 
 /// TTL for cached rx_info contexts.
 const CONTEXT_CACHE_TTL: Duration = Duration::from_secs(60);
+
+/// ChirpStack Gateway Mesh replaces `rx_info.context` on a relayed uplink with
+/// `[1,2,3] + relay_id(4) + uplink_id(2)`.
+const MESH_CTX_PREFIX: [u8; 3] = [1, 2, 3];
+const MESH_CTX_LEN: usize = MESH_CTX_PREFIX.len() + 6;
+
+pub(crate) fn is_mesh_context(context: &[u8]) -> bool {
+    context.len() == MESH_CTX_LEN && context[..MESH_CTX_PREFIX.len()] == MESH_CTX_PREFIX
+}
+
+/// Discriminator bit for synthesized counters. A real concentrator `count_us` is a `u32`
+/// and so never reaches bit 47, which keeps the two numbering spaces disjoint.
+const SYNTHETIC_XTIME_FLAG: i64 = 1 << 47;
+
+/// Monotonic source for synthesized counters, in microseconds since process start.
+static XTIME_EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
+/// Last synthesized counter, to guarantee strict monotonicity.
+static LAST_SYNTHETIC_US: AtomicI64 = AtomicI64::new(0);
+
+/// Reconstruct the `xtime` for an uplink.
+///
+/// For a plain concentratord context the first four bytes really are a big-endian
+/// `count_us`, and that value is used unchanged -- direct (non-mesh) deployments keep
+/// their existing on-the-wire behaviour exactly.
+///
+/// A mesh-relayed context carries no timestamp at all: the mesh proxy overwrote it, and
+/// `UplinkRxInfo` has no other counter field. Deriving `count_us` from those bytes yields
+/// `[1,2,3,relay_id[0]]`, a constant, so every uplink collapses onto one cache key. Instead
+/// synthesize a strictly increasing microsecond counter. This is safe because `xtime` is an
+/// opaque correlation token to the LNS and downlinks are scheduled with `Delay` timing
+/// relative to the context, never from `xtime`.
+pub(crate) fn uplink_xtime(session: u8, context: &[u8]) -> i64 {
+    let counter = if is_mesh_context(context) || context.len() < 4 {
+        let now_us = XTIME_EPOCH.elapsed().as_micros() as i64 & 0x0000_7FFF_FFFF_FFFF;
+        // Strictly increasing even if two uplinks land in the same microsecond.
+        let unique = LAST_SYNTHETIC_US
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |prev| {
+                Some(if now_us > prev { now_us } else { prev + 1 })
+            })
+            .map(|prev| if now_us > prev { now_us } else { prev + 1 })
+            .unwrap_or(now_us);
+        SYNTHETIC_XTIME_FLAG | unique
+    } else {
+        u32::from_be_bytes([context[0], context[1], context[2], context[3]]) as i64
+    };
+
+    ((session as i64) << 48) | (counter & 0x0000_FFFF_FFFF_FFFF)
+}
 
 /// Cache of full rx_info.context blobs, keyed by xtime.
 #[allow(clippy::type_complexity)]
@@ -71,7 +119,7 @@ pub fn set_cups_tc_auth_headers(headers: Vec<(String, String)>) {
 }
 
 /// Stores a context blob and returns the resulting number of cached entries.
-fn cache_context(xtime: i64, context: Vec<u8>) -> usize {
+pub(crate) fn cache_context(xtime: i64, context: Vec<u8>) -> usize {
     let mut cache = CONTEXT_CACHE.lock().unwrap();
     cache.insert(xtime, (context, Instant::now()));
     cache.len()
@@ -262,30 +310,32 @@ pub async fn send_uplink(frame: &gw::UplinkFrame) -> Result<()> {
         *s
     };
 
+    // Single source of truth: the same xtime is cached as the key and reported to the LNS,
+    // so the insert key and the value the LNS echoes back can never diverge.
+    let context: &[u8] = frame
+        .rx_info
+        .as_ref()
+        .map(|rx| rx.context.as_slice())
+        .unwrap_or(&[]);
+    let xtime = uplink_xtime(session, context);
+
     if CONTEXT_CACHING_ENABLED.load(Ordering::Relaxed)
         && let Some(rx_info) = &frame.rx_info
-        && rx_info.context.len() >= 4
+        && !rx_info.context.is_empty()
     {
-        let count_us = u32::from_be_bytes([
-            rx_info.context[0],
-            rx_info.context[1],
-            rx_info.context[2],
-            rx_info.context[3],
-        ]) as i64;
-        let xtime = ((session as i64) << 48) | (count_us & 0x0000_FFFF_FFFF_FFFF);
         let entries = cache_context(xtime, rx_info.context.clone());
 
         debug!(
-            "Cached uplink context, xtime: {}, count_us: {}, context: {}, len: {}, entries: {}",
+            "Cached uplink context, xtime: {}, synthetic: {}, context: {}, len: {}, entries: {}",
             xtime,
-            count_us,
+            is_mesh_context(&rx_info.context),
             hex::encode(&rx_info.context),
             rx_info.context.len(),
             entries
         );
     }
 
-    let msg = uplink::frame_to_json(frame, &rc, session, ref_time)?;
+    let msg = uplink::frame_to_json(frame, &rc, session, ref_time, xtime)?;
 
     // Clear MuxTime after using it.
     if ref_time.is_some() {
@@ -421,6 +471,83 @@ mod tests {
         cache_context(xtime, ctx.clone());
         sweep_context_cache();
         assert_eq!(get_cached_context(xtime), Some(ctx));
+    }
+
+    // -----------------------------------------------------------------------
+    // Defect 1: distinct xtime per uplink (RQ-003)
+    // -----------------------------------------------------------------------
+
+    /// A mesh-relayed context: [1,2,3] + relay_id(4) + uplink_id(2).
+    fn mesh_ctx(uplink_id: u16) -> Vec<u8> {
+        let mut c = vec![1, 2, 3, 0xf1, 0x0c, 0xab, 0x4e];
+        c.extend_from_slice(&uplink_id.to_be_bytes());
+        c
+    }
+
+    /// The pre-fix derivation, kept verbatim so the regression is expressed as a
+    /// behavioural difference rather than a compile error.
+    fn legacy_xtime(session: u8, context: &[u8]) -> i64 {
+        let count_us =
+            u32::from_be_bytes([context[0], context[1], context[2], context[3]]) as i64;
+        ((session as i64) << 48) | (count_us & 0x0000_FFFF_FFFF_FFFF)
+    }
+
+    #[test]
+    fn test_legacy_derivation_collapses_mesh_uplinks_onto_one_key() {
+        let _g = setup(true);
+        // Every relayed uplink from one relay parsed to [1,2,3,relay_id[0]] = 0x010203F1.
+        for id in [0x02ee_u16, 0x02ef, 0x02f0, 0x02f1] {
+            let ctx = mesh_ctx(id);
+            cache_context(legacy_xtime(1, &ctx), ctx);
+        }
+        assert_eq!(
+            CONTEXT_CACHE.lock().unwrap().len(),
+            1,
+            "pre-fix behaviour: all mesh uplinks collide on a single cache key"
+        );
+    }
+
+    #[test]
+    fn test_mesh_uplinks_get_distinct_keys() {
+        let _g = setup(true);
+        let ids = [0x02ee_u16, 0x02ef, 0x02f0, 0x02f1];
+        for id in ids {
+            let ctx = mesh_ctx(id);
+            cache_context(uplink_xtime(1, &ctx), ctx);
+        }
+        assert_eq!(
+            CONTEXT_CACHE.lock().unwrap().len(),
+            ids.len(),
+            "each mesh uplink must occupy its own cache entry"
+        );
+    }
+
+    #[test]
+    fn test_mesh_xtime_is_flagged_and_monotonic() {
+        let a = uplink_xtime(1, &mesh_ctx(1));
+        let b = uplink_xtime(1, &mesh_ctx(2));
+        assert!(a & SYNTHETIC_XTIME_FLAG != 0, "synthetic values carry bit 47");
+        assert!(b > a, "synthesized counters strictly increase");
+    }
+
+    #[test]
+    fn test_direct_context_keeps_real_count_us() {
+        // A plain 4-byte concentratord context must round-trip unchanged, so direct
+        // deployments keep their existing on-the-wire xtime.
+        let ctx = vec![0x0f, 0xcd, 0x2e, 0x3c];
+        let xtime = uplink_xtime(1, &ctx);
+        assert_eq!(xtime, legacy_xtime(1, &ctx));
+        assert_eq!(xtime & SYNTHETIC_XTIME_FLAG, 0, "not flagged as synthetic");
+    }
+
+    #[test]
+    fn test_synthetic_and_real_spaces_cannot_collide() {
+        // Real count_us is a u32, so it can never reach bit 47.
+        let real = uplink_xtime(1, &[0xff, 0xff, 0xff, 0xff]);
+        let synthetic = uplink_xtime(1, &mesh_ctx(1));
+        assert_eq!(real & SYNTHETIC_XTIME_FLAG, 0);
+        assert!(synthetic & SYNTHETIC_XTIME_FLAG != 0);
+        assert_ne!(real, synthetic);
     }
 
     // -----------------------------------------------------------------------
